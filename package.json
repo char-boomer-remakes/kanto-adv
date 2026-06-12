@@ -1,0 +1,23 @@
+{
+  "name": "kanto-adventure",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node tools/e2e-test.mjs",
+    "data": "python3 tools/generate_data.py"
+  },
+  "dependencies": {
+    "three": "^0.160.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.160.0",
+    "playwright-core": "^1.49.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7"
+  }
+}
