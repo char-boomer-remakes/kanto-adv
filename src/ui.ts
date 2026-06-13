@@ -103,7 +103,6 @@ export class UI {
     $("btnBall")?.addEventListener("click", () => this.game.quickBall());
     $("btnHeal")?.addEventListener("click", () => this.game.quickHeal());
     $("btnGram").addEventListener("click", () => { this.hide("m-pause"); this.openGram(); });
-    $("btnCheats").addEventListener("click", () => this.openCheats());
     $("btnKeysReset")?.addEventListener("click", () => {
       this.game.resetKeybinds();
       this.rebinding = null;
@@ -231,6 +230,13 @@ export class UI {
     if (this.dialogActive) {
       if (has("interact") || has("jumpDodge") || k === "enter") { this.dialogAdvance(); return true; }
       if (has("menu") || k === "escape") return true;
+      return true;
+    }
+    if (code === "F9") {
+      if (!this.game.state.started) return true;
+      const top = this.modalStack[this.modalStack.length - 1];
+      if (top === "m-cheats") this.closeTop();
+      else this.openCheats();
       return true;
     }
     if (this.modalOpen) {

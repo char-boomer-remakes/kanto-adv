@@ -119,6 +119,134 @@ export function keyLabel(code: string) {
   return code.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
+const DEFAULT_ITEMS = { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, nugget: 0 };
+const DEFAULT_CHEATS = { god: false, ohko: false, catchall: false, infpp: false, speed: false };
+const DEFAULT_SETTINGS = { vol: 70, sens: 100, ai: "adaptive", style: "fp", followers: true, expShare: true };
+
+function isObj(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+function finiteNum(v, fallback) { return typeof v === "number" && Number.isFinite(v) ? v : fallback; }
+function saveVersion(s) {
+  const v = Number(s?.v || 1);
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+export function freshSaveState() {
+  return {
+    v: SAVE_VERSION, started: false, party: [], boxes: [], money: 600,
+    items: { ...DEFAULT_ITEMS },
+    seen: [], caught: [], tl: 1, txp: 0, beaten: {}, badges: [],
+    settings: { ...DEFAULT_SETTINGS, keybinds: normalizeKeybinds() }, time: 0.18, spotsFound: [],
+    cheats: { ...DEFAULT_CHEATS },
+    lastCenter: null, starter: null, hof: [], repelT: 0, lureT: 0,
+    followerUid: null, voucher: false, bike: false, truckKeys: false, vehicle: null,
+    name: "", rival: "", playT: 0, story: {},
+  };
+}
+
+function normalizeMonList(list) {
+  return Array.isArray(list) ? list.filter((m) => isObj(m) && DEX[m.sp]) : [];
+}
+
+export function normalizeSaveState(raw) {
+  const s = isObj(raw) ? raw : freshSaveState();
+  const fromVersion = saveVersion(s);
+  const old = fromVersion < SAVE_VERSION;
+
+  s.started = !!s.started;
+  s.party = normalizeMonList(s.party);
+  s.boxes = normalizeMonList(s.boxes);
+  s.money = finiteNum(s.money, 600);
+  s.items = Object.assign({ ...DEFAULT_ITEMS }, isObj(s.items) ? s.items : {});
+  s.seen = Array.isArray(s.seen) ? s.seen : [];
+  s.caught = Array.isArray(s.caught) ? s.caught : [];
+  s.tl = finiteNum(s.tl, 1);
+  s.txp = finiteNum(s.txp, 0);
+  s.beaten = isObj(s.beaten) ? s.beaten : {};
+  s.badges = Array.isArray(s.badges) ? s.badges : [];
+  s.time = finiteNum(s.time, 0.18);
+  s.spotsFound = Array.isArray(s.spotsFound) ? s.spotsFound : [];
+  s.lastCenter = Array.isArray(s.lastCenter) ? s.lastCenter : null;
+  s.pos = Array.isArray(s.pos) ? s.pos : null;
+
+  for (const m of [...s.party, ...s.boxes]) {
+    const lv = finiteNum(m.lv, 5);
+    m.lv = clamp(Math.floor(lv), 1, 100);
+    if (!Array.isArray(m.moves) || !m.moves.length) {
+      const learned = (DEX[m.sp].learnset || []).filter(([l]) => l <= m.lv).map(([, id]) => id).filter((id) => MOVES[id]);
+      m.moves = learned.slice(-4);
+    } else {
+      m.moves = m.moves.filter((id) => MOVES[id]).slice(0, 4);
+    }
+    if (!m.moves.length) m.moves = [33]; // Tackle is the safest cross-version fallback.
+    if (!m.ivs) m.ivs = rollDVs();
+    if (m.ivs.hp === undefined) m.ivs.hp = ((m.ivs.atk & 1) << 3) | ((m.ivs.def & 1) << 2) | ((m.ivs.spe & 1) << 1) | (m.ivs.spc & 1);
+    if (!m.sexp) m.sexp = ZERO_SEXP();
+    if (!Array.isArray(m.pp) || m.pp.length !== m.moves.length) m.pp = m.moves.map((id) => MOVES[id].pp);
+    if (m.status === undefined) m.status = null;
+    if (old || typeof m.xp !== "number" || typeof m.maxhp !== "number") {
+      m.xp = xpForLevel(m.sp, m.lv);
+      Object.assign(m, calcStats(m.sp, m.lv, m.ivs, m.sexp));
+      m.hp = clamp(finiteNum(m.hp, m.maxhp), 0, m.maxhp);
+    }
+    if (m.hap === undefined) m.hap = 70;
+    if (!m.uid) m.uid = Math.random().toString(36).slice(2, 10);
+  }
+
+  if (old) {
+    if (fromVersion < 2) {
+      s.pos = null;                     // the world map changed entirely in v2
+      s.beaten = {};
+      s.spotsFound = [];
+      s.lastCenter = null;
+      s.badges = s.badges.includes("terra") ? ["boulder"] : [];
+    }
+    if (fromVersion < 4) {
+      // v4 rebuilt Kanto to match the real RBY town map — old positions are
+      // likely inside a mountain or the sea now.
+      s.pos = null;
+      s.lastCenter = null;
+      s.spotsFound = [];
+    }
+    if (fromVersion < 5) {
+      // v5 doubled the map: every stored position scales with it
+      if (Array.isArray(s.pos)) { s.pos = [s.pos[0] * MAP_SCALE, s.pos[1], s.pos[2] * MAP_SCALE]; }
+      if (Array.isArray(s.lastCenter)) { s.lastCenter = [s.lastCenter[0] * MAP_SCALE, s.lastCenter[1] * MAP_SCALE]; }
+    }
+    s.v = SAVE_VERSION;
+  } else if (typeof s.v !== "number") {
+    s.v = SAVE_VERSION;
+  }
+
+  // v3 additions
+  // razz berries retired with the catching rework — swap any held for orans
+  if (s.items.razzberry) s.items.oranberry += s.items.razzberry;
+  delete s.items.razzberry;
+  if (s.starter === undefined) s.starter = null;
+  if (!Array.isArray(s.hof)) s.hof = [];
+  if (s.repelT === undefined) s.repelT = 0;
+  if (s.lureT === undefined) s.lureT = 0;
+  s.cheats = Object.assign({ ...DEFAULT_CHEATS }, isObj(s.cheats) ? s.cheats : {});
+  // v5 additions: AI setting, chosen walking partner, vehicles
+  // v8: battle style (classic turns / arena real-time / first-person)
+  s.settings = Object.assign({ ...DEFAULT_SETTINGS, style: "arena" }, isObj(s.settings) ? s.settings : {});
+  s.settings.keybinds = normalizeKeybinds(s.settings.keybinds);
+  if (s.followerUid === undefined) s.followerUid = null;
+  if (s.voucher === undefined) s.voucher = false;
+  if (s.bike === undefined) s.bike = false;
+  if (s.truckKeys === undefined) s.truckKeys = false;
+  if (s.vehicle === undefined || (s.vehicle === "bike" && !s.bike) || (s.vehicle === "truck" && !s.truckKeys)) s.vehicle = null;
+  // v9 story additions: trainer/rival names, playtime, story beats
+  if (typeof s.name !== "string") s.name = "";
+  if (typeof s.rival !== "string") s.rival = "";
+  if (typeof s.playT !== "number") s.playT = 0;
+  if (!s.story || typeof s.story !== "object") s.story = {};
+  // pre-v9 saves predate the lab battle — don't ambush them retroactively
+  if (s.started && s.story.rival1 === undefined) s.story.rival1 = true;
+  if (s.started && s.badges.length >= 2 && s.story.rival2 === undefined) s.story.rival2 = true;
+  if (s.started && s.badges.length >= 5 && s.story.rival3 === undefined) s.story.rival3 = true;
+  return s;
+}
+
 const V3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
@@ -3507,16 +3635,7 @@ export class Game {
     this.ballIdx = 0;
     this.legendAlive = {};
 
-    this.state = this.load() || {
-      v: SAVE_VERSION, started: false, party: [], boxes: [], money: 600,
-      items: { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, nugget: 0 },
-      seen: [], caught: [], tl: 1, txp: 0, beaten: {}, badges: [],
-      settings: { vol: 70, sens: 100, ai: "adaptive", style: "fp", followers: true, expShare: true, keybinds: normalizeKeybinds() }, time: 0.18, spotsFound: [],
-      cheats: { god: false, ohko: false, catchall: false, infpp: false, speed: false },
-      lastCenter: null, starter: null, hof: [], repelT: 0, lureT: 0,
-      followerUid: null, voucher: false, bike: false, truckKeys: false, vehicle: null,
-      name: "", rival: "", playT: 0, story: {},
-    };
+    this.state = this.load() || freshSaveState();
     this.applyRivalName();
     this.dexSeen = new Set(this.state.seen);
     this.dexCaught = new Set(this.state.caught);
@@ -3549,77 +3668,13 @@ export class Game {
       const raw = localStorage.getItem(slotStorageKey(currentSlot()));
       if (!raw) return null;
       const s = JSON.parse(raw);
-      if (!s || !Array.isArray(s.party)) return null;
+      if (!s || typeof s !== "object") return null;
       return this.migrate(s);
     } catch (e) { return null; }
   }
   // upgrade old saves to the Gen-1-stats + Kanto-map version
   migrate(s) {
-    const old = (s.v || 1) < SAVE_VERSION;
-    for (const m of [...s.party, ...(s.boxes || [])]) {
-      if (!m.ivs) m.ivs = rollDVs();
-      if (m.ivs.hp === undefined) m.ivs.hp = ((m.ivs.atk & 1) << 3) | ((m.ivs.def & 1) << 2) | ((m.ivs.spe & 1) << 1) | (m.ivs.spc & 1);
-      if (!m.sexp) m.sexp = ZERO_SEXP();
-      if (!Array.isArray(m.pp) || m.pp.length !== m.moves.length) m.pp = m.moves.map((id) => MOVES[id].pp);
-      if (old) {
-        m.xp = xpForLevel(m.sp, m.lv);
-        Object.assign(m, calcStats(m.sp, m.lv, m.ivs, m.sexp));
-        m.hp = Math.min(m.hp, m.maxhp);
-      }
-    }
-    if (old) {
-      if ((s.v || 1) < 2) {
-        s.pos = null;                     // the world map changed entirely in v2
-        s.beaten = {};
-        s.spotsFound = [];
-        s.lastCenter = null;
-        s.badges = (s.badges || []).includes("terra") ? ["boulder"] : [];
-      }
-      if ((s.v || 1) < 4) {
-        // v4 rebuilt Kanto to match the real RBY town map — old positions are
-        // likely inside a mountain or the sea now.
-        s.pos = null;
-        s.lastCenter = null;
-        s.spotsFound = [];
-      }
-      if ((s.v || 1) < 5) {
-        // v5 doubled the map: every stored position scales with it
-        if (Array.isArray(s.pos)) { s.pos = [s.pos[0] * MAP_SCALE, s.pos[1], s.pos[2] * MAP_SCALE]; }
-        if (Array.isArray(s.lastCenter)) { s.lastCenter = [s.lastCenter[0] * MAP_SCALE, s.lastCenter[1] * MAP_SCALE]; }
-      }
-      s.v = SAVE_VERSION;
-    }
-    // v3 additions
-    for (const m of [...s.party, ...(s.boxes || [])]) if (m.hap === undefined) m.hap = 70;
-    s.items = Object.assign({ oranberry: 0, repel: 0, escaperope: 0, lure: 0, nugget: 0 }, s.items);
-    // razz berries retired with the catching rework — swap any held for orans
-    if (s.items.razzberry) s.items.oranberry += s.items.razzberry;
-    delete s.items.razzberry;
-    if (s.starter === undefined) s.starter = null;
-    if (!Array.isArray(s.hof)) s.hof = [];
-    if (s.repelT === undefined) s.repelT = 0;
-    if (s.lureT === undefined) s.lureT = 0;
-    s.cheats = Object.assign({ god: false, ohko: false, catchall: false, infpp: false, speed: false }, s.cheats);
-    // v5 additions: AI setting, chosen walking partner, vehicles
-    // v8: battle style (classic turns / arena real-time / first-person)
-    s.settings = Object.assign({ vol: 70, sens: 100, ai: "adaptive", style: "arena", followers: true, expShare: true }, s.settings);
-    s.settings.keybinds = normalizeKeybinds(s.settings.keybinds);
-    for (const m of [...s.party, ...(s.boxes || [])]) if (!m.uid) m.uid = Math.random().toString(36).slice(2, 10);
-    if (s.followerUid === undefined) s.followerUid = null;
-    if (s.voucher === undefined) s.voucher = false;
-    if (s.bike === undefined) s.bike = false;
-    if (s.truckKeys === undefined) s.truckKeys = false;
-    if (s.vehicle === undefined || (s.vehicle === "bike" && !s.bike) || (s.vehicle === "truck" && !s.truckKeys)) s.vehicle = null;
-    // v9 story additions: trainer/rival names, playtime, story beats
-    if (typeof s.name !== "string") s.name = "";
-    if (typeof s.rival !== "string") s.rival = "";
-    if (typeof s.playT !== "number") s.playT = 0;
-    if (!s.story || typeof s.story !== "object") s.story = {};
-    // pre-v9 saves predate the lab battle — don't ambush them retroactively
-    if (s.started && s.story.rival1 === undefined) s.story.rival1 = true;
-    if (s.started && s.badges.length >= 2 && s.story.rival2 === undefined) s.story.rival2 = true;
-    if (s.started && s.badges.length >= 5 && s.story.rival3 === undefined) s.story.rival3 = true;
-    return s;
+    return normalizeSaveState(s);
   }
   resetSave() { this.resetting = true; localStorage.removeItem(slotStorageKey(currentSlot())); location.reload(); }
 
