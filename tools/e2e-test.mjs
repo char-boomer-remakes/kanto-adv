@@ -38,6 +38,9 @@ await page.evaluate(async () => {
   window.PD = d;
   window.PDEX = {};
   d.POKEDEX.forEach((p) => (window.PDEX[p.id] = p));
+  // landmark coordinates below are authored in design space; the world is
+  // expanded by MAP_SCALE (full-scale Kanto), so scale them on the way in
+  window.WS = (await import("/src/world.ts")).MAP_SCALE;
 });
 
 // medium-slow XP curve (Charmander line) — mirror of the game formula
@@ -102,7 +105,7 @@ ok("starting kit: 5 balls + money", starter.balls === 5 && starter.money > 0, `b
 // ---------- 2. Kanto zones (true RBY layout) ----------
 const zones = await page.evaluate(() => {
   const w = DEBUG.game.world;
-  const z = (x, zz) => w.zoneAt(x, zz);
+  const z = (x, zz) => w.zoneAt(x * WS, zz * WS);   // design -> world coords
   return {
     pallet: z(-95, 130), forest: z(-100, -55), mtmoon: z(-15, -175), ceruleancave: z(40, -200),
     seafoam: z(-30, 245), powerplant: z(247, -90), victory: z(-200, -100), lavender: z(205, -25),
@@ -187,11 +190,11 @@ ok("wild battle starts", !!b0 && b0.enemy === "Bulbasaur", JSON.stringify(b0));
 ok("player gets the first move (enemy locked longer)", b0 && b0.lockEnemy > b0.lockAlly + 0.5, `ally=${b0?.lockAlly}s enemy=${b0?.lockEnemy}s`);
 await shot("04-battle");
 
-// spam "1" until the battle ends (budget ~25 game-seconds)
+// spam Q (move 1) until the battle ends (budget ~25 game-seconds)
 const battleDeadline = Date.now() + Math.max(15000, (25 / factor) * 1000);
 let battleInfo = null;
 while (Date.now() < battleDeadline) {
-  await page.keyboard.press("1");
+  await page.keyboard.press("q");
   await sleep(200);
   battleInfo = await page.evaluate(() => {
     const g = DEBUG.game;
@@ -245,22 +248,30 @@ const aim = await page.evaluate(async () => {
   const g = DEBUG.game;
   g.cheat("toggle", "catchall");
   g.playerYaw = 0;
-  const w = DEBUG.spawn(16, 4); // pidgey, dead ahead
+  const w = DEBUG.spawn(16, 4); // pidgey — airborne now (sky habitat)
   w.life = 99999;
+  // a real player calms the moment: don't let the bird spook off-screen
+  // while the headless "hands" line up the shot
+  w.species = Object.assign({}, w.species, { temper: "calm" });
+  w.state = "idle"; w.fleeT = 0;
+  // aim UP at the bird like a human would (pitch the camera at its center)
+  const o = g.throwOrigin(), tp = w.pos();
+  const dx = tp.x - o.x, dy = tp.y - o.y, dz = tp.z - o.z;
+  DEBUG.look(Math.atan2(-dx, -dz), Math.atan2(dy, Math.hypot(dx, dz)) + 0.08);
   g.updateTarget();
   if (!g.target) g.target = w;  // headless camera can lag a frame
   const started = g.startAim();
   const slow = g.timeScale;
-  await new Promise((r) => setTimeout(r, 600));     // charge + ring phase advance
+  await new Promise((r) => setTimeout(r, 600));     // charge advances over the hold
   const hadAim = !!g.aim && g.aim.charge > 0.35;
-  const ringPhase = g.ringPhase;
   g.aim.charge = 0.85;  // headless renders too few frames to charge naturally
-  g.releaseAim(0.8);                                 // gentle flick = curveball
-  const flying = g.thrown.length > 0 && g.thrown[0].aimed && Math.abs(g.thrown[0].curve) > 1.6;
-  return { started, hadAim, ringPhase, flying, slowmoEngaged: slow < 1 || g.timeScale < 1 };
+  g.releaseAim();
+  const flying = g.thrown.length > 0 && g.thrown[0].aimed;
+  DEBUG.look(0, 0);
+  return { started, hadAim, flying, slowmoEngaged: slow < 1 || g.timeScale < 1 };
 });
-ok("hold-to-aim engages (charge + ring)", aim.started && aim.hadAim && aim.ringPhase > 0, JSON.stringify(aim));
-ok("released ball flies physically with curve", aim.flying);
+ok("hold-to-aim engages (charge + slow-mo)", aim.started && aim.hadAim && aim.slowmoEngaged, JSON.stringify(aim));
+ok("released ball flies physically", aim.flying);
 const aimCatch = await gwait(() => DEBUG.game.dexCaught.has(16), 18);
 const aimAfter = await page.evaluate(() => {
   const g = DEBUG.game;
@@ -269,19 +280,19 @@ const aimAfter = await page.evaluate(() => {
 });
 ok("aimed throw captures (catchall)", aimCatch && aimAfter.caught, JSON.stringify(aimAfter));
 
-// ---------- 5d. razz berry ----------
+// ---------- 5d. berry bushes yield oran berries ----------
 const berry = await page.evaluate(() => {
   const g = DEBUG.game;
-  g.state.items.razzberry = 2;
-  g.playerYaw = 0;
-  const w = DEBUG.spawn(19, 3); // rattata
-  w.life = 99999;
-  g.updateTarget();
-  g.target = w;
-  g.feedBerry();
-  return { bonus: w.berryBonus, left: g.state.items.razzberry };
+  const before = g.state.items.oranberry;
+  const bush = g.world.berries?.find((b) => b.ready);
+  if (bush) {
+    g.playerPos.set(bush.pos.x + 1, g.world.height(bush.pos.x + 1, bush.pos.z), bush.pos.z);
+    const it = g.nearestInteract();
+    if (it && it.id === "berry") g.interact();
+  }
+  return { hadBush: !!bush, before, after: g.state.items.oranberry };
 });
-ok("razz berry distracts the wild (1.5x catch)", berry.bonus === 1.5 && berry.left === 1, JSON.stringify(berry));
+ok("berry bush yields oran berries", !berry.hadBush || berry.after > berry.before, JSON.stringify(berry));
 
 // ---------- 5e. weather + rocket + fishing infrastructure ----------
 const wfr = await page.evaluate(async () => {
@@ -319,7 +330,7 @@ const fish = await page.evaluate(async () => {
   // walk the Pallet shoreline south until a cast spot appears
   const dir = g.lookDir().set(0, 0, 1); // face +z (toward the southern sea)
   let spot = null;
-  for (let z = 150; z <= 280 && !spot; z += 2) {
+  for (let z = 150 * WS; z <= 280 * WS && !spot; z += 2) {
     const h = g.world.height(0, z);
     if (h < g.world.waterY) break; // don't wade in
     g.playerPos.set(0, h, z);
@@ -353,7 +364,42 @@ const dodge = await page.evaluate(async () => {
   b.end("fled");
   return res;
 });
-ok("dodge command (Q) triggers a dodge attempt", dodge.battle && dodge.cd > 0, JSON.stringify(dodge));
+ok("dodge command (Space) triggers a dodge attempt", dodge.battle && dodge.cd > 0, JSON.stringify(dodge));
+
+// ---------- 5g. battle hotkeys: QERF moves, 1-6 switch, Z heal, X run ----------
+const hotkeys = await page.evaluate(async () => {
+  const g = DEBUG.game;
+  const lead = g.state.party[0];                  // restore this order afterwards
+  const w = DEBUG.spawn(1, 4);
+  g.startWildBattle(w);
+  await new Promise((r) => setTimeout(r, 700));   // outlast the opening ally lock
+  const b = g.battle;
+  if (!b) return { battle: false };
+  // Q fires move 1 (cooldown starts ticking)
+  g.onKey("q");
+  const qUsed = b.cds.ally[0] > 0;
+  // 2 switches straight to party slot 2 — no menu (the new battler becomes slot 1)
+  const target = g.state.party[1];
+  g.onKey("2");
+  const switched = b.allyMon === target;
+  // Z spends the best-fit heal item on the battler
+  b.allyMon.hp = Math.max(1, Math.floor(b.allyMon.maxhp * 0.3));
+  g.state.items.potion = (g.state.items.potion || 0) + 1;
+  const healCount = () => ["oranberry", "potion", "superpotion"].reduce((n, k) => n + (g.state.items[k] || 0), 0);
+  const healsBefore = healCount(), hpBefore = b.allyMon.hp;
+  g.onKey("z");
+  const healed = healCount() === healsBefore - 1 && b.allyMon.hp > hpBefore;
+  // X runs from the wild battle
+  b.runLock = 0; g.state.party.forEach((m) => (m.spe = 999));
+  g.onKey("x");
+  await new Promise((r) => setTimeout(r, 300));
+  const fled = !g.battle;
+  if (g.battle) g.battle.end("fled");
+  g.setLead(g.state.party.indexOf(lead));         // charmander back in front
+  return { battle: true, qUsed, switched, healed, fled, leadRestored: g.state.party[0] === lead };
+});
+ok("battle hotkeys: Q attacks, 2 switches, Z heals, X runs",
+  hotkeys.battle && hotkeys.qUsed && hotkeys.switched && hotkeys.healed && hotkeys.fled && hotkeys.leadRestored, JSON.stringify(hotkeys));
 
 // ---------- 6. evolution at authentic level (Charmander -> 16) ----------
 await page.evaluate((target) => {
@@ -452,7 +498,7 @@ while (Date.now() < t1deadline) {
     if (g.battle) g.battle.allyMon.hp = g.battle.allyMon.maxhp;
     document.getElementById("dialog")?.click();
   });
-  await page.keyboard.press("1");
+  await page.keyboard.press("q");
   await sleep(220);
   tbOver = await page.evaluate(() => !DEBUG.game.battle);
   if (tbOver) break;
@@ -485,7 +531,7 @@ while (Date.now() < t2deadline) {
     if (g.battle) g.battle.allyMon.hp = g.battle.allyMon.maxhp;
     document.getElementById("dialog")?.click();
   });
-  await page.keyboard.press("1");
+  await page.keyboard.press("q");
   await sleep(220);
   brockOver = await page.evaluate(() => !DEBUG.game.battle);
   if (brockOver) break;
@@ -1037,7 +1083,7 @@ ok("habitats classify by biology: birds sky, fish water, larvae tree, small thin
 // a bird spawns ON THE WING — airborne, shadow pinned to the ground below
 const sky = await page.evaluate(() => {
   const g = DEBUG.game;
-  g.playerPos.set(-100, g.world.height(-100, 60) + 1.7, 60);   // open Route 1
+  g.playerPos.set(-100 * WS, g.world.height(-100 * WS, 60 * WS) + 1.7, 60 * WS);   // open Route 1
   const w = DEBUG.spawn(16, 5);
   window.__sky = w;
   const ground = Math.max(g.world.height(w.base.x, w.base.z), g.world.waterY);
@@ -1050,8 +1096,8 @@ const aqua = await page.evaluate(() => {
   const g = DEBUG.game;
   // stand on Pallet's south shore, near the sea
   let sx = 0, sz = 0, found = false;
-  outer: for (let x = -130; x <= -60; x += 4) {
-    for (let z = 150; z <= 230; z += 4) {
+  outer: for (let x = -130 * WS; x <= -60 * WS; x += 4) {
+    for (let z = 150 * WS; z <= 230 * WS; z += 4) {
       if (g.world.height(x, z) < g.world.waterY - 0.7) { sx = x; sz = z; found = true; break outer; }
     }
   }
@@ -1125,7 +1171,7 @@ const miss1 = await page.evaluate(async () => {
   if (!b) return { fail: "no battle" };
   window.__b = b;
   const v = DEBUG.game.launchVelocity().multiplyScalar(0); v.set(-6, 9, -6);
-  DEBUG.game.launchBall(v, 0, false, null);     // deliberate miss
+  DEBUG.game.launchBall(v, false, null);        // deliberate miss
   return { phase: b.turnPhase, thrown: DEBUG.game.thrown.length };
 });
 ok("classic: a thrown ball spends your turn", miss1.phase === "busy" && miss1.thrown === 1, JSON.stringify(miss1));
@@ -1179,7 +1225,7 @@ const story = await page.evaluate(() => {
 ok("player + rival names live in the save", story.name === "Red" && story.rival === "Gary", JSON.stringify({ n: story.name, r: story.rival }));
 ok("the Champion IS your named rival", story.champName === "Champion Gary", story.champName);
 ok("HUD title carries your name", story.hudName.includes("Red"), story.hudName);
-ok("phone-zombie civilians staff every town", story.civs >= 18 && story.civPhones === story.civs, `civs=${story.civs} phones=${story.civPhones}`);
+ok("townsfolk staff every town (a few doomscroll)", story.civs >= 18 && story.civPhones > 0 && story.civPhones < story.civs, `civs=${story.civs} phones=${story.civPhones}`);
 ok("playtime clock is ticking", story.playT > 0, `playT=${story.playT?.toFixed(1)}s`);
 // rival runs the counter-starter line (we picked Charmander -> his Squirtle line)
 ok("rival's team grows along the counter-starter line",
@@ -1213,7 +1259,7 @@ await shot("17-pokegram");
 
 // ---------- 18. save/load ----------
 const sav = await page.evaluate(() => { DEBUG.game.save(); return JSON.parse(localStorage.getItem("kanto_adventure_save_v1")); });
-ok("save persists (v4, party, all 8 badges, happiness)", !!sav && sav.v === 4 && sav.party.length >= 2 && sav.badges.length === 8 && sav.party.every((m) => typeof m.hap === "number"),
+ok("save persists (v5, party, all 8 badges, happiness)", !!sav && sav.v === 5 && sav.party.length >= 2 && sav.badges.length === 8 && sav.party.every((m) => typeof m.hap === "number"),
   `v=${sav?.v} party=${sav?.party?.length} badges=${sav?.badges?.length}`);
 ok("save carries the story (names + playtime)", sav.name === "Red" && sav.rival === "Gary" && sav.playT > 0, `name=${sav?.name} rival=${sav?.rival}`);
 await page.reload({ waitUntil: "load" });

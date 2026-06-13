@@ -10,7 +10,11 @@ const issues = [];
 const note = (s) => console.log("  " + s);
 const flag = (s) => { issues.push(s); console.log("  ISSUE: " + s); };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  channel: "chrome",
+  headless: true,
+  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--mute-audio", "--window-size=1280,800"],
+});
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 page.on("pageerror", (e) => flag(`pageerror: ${e.message}`));
 page.on("console", (m) => { if (m.type() === "error") flag(`console.error: ${m.text().slice(0, 200)}`); });

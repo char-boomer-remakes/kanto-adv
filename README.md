@@ -1,15 +1,16 @@
 # Kanto Adventure
 
-A first-person Pokémon adventure in the browser: explore a **miniature Kanto
-laid out like the real Gen 1 map** — all ten towns from Pallet to Cinnabar —
-with your **Pokémon walking ahead of you in view**, catch all 151 Pokémon
-with **physical, aimable Poké Ball throws** (slow-mo, curveballs, timing
-rings, critical catches), fight wild Pokémon and trainers in real time —
-or press **T** and **become your Pokémon**: move it yourself, aim its
-attacks like an FPS, and dodge for real by not being where the hit lands.
-Watch moves **scorch, crater and frost the terrain**, fish the lakes,
-weather the storms, foil **Team Rocket**, earn the **Bike Voucher** and ride
-the Bicycle, earn all **eight gym badges** and climb Victory Road to the
+A first-person Pokémon adventure in the browser: roam a **full-scale Kanto
+laid out like the real Gen 1 map** — all ten towns from Pallet to Cinnabar,
+with real distance between them and a Bicycle (and eventually a truck) to
+cross it — with your **Pokémon walking ahead of you in view**, catch all
+151 Pokémon with **physical, aimable Poké Ball throws** (slow-mo aim mode,
+critical catches), fight wild Pokémon and trainers in real time — or press
+**T** and **become your Pokémon**: move it yourself, aim its attacks like
+an FPS, and dodge for real by not being where the hit lands. Watch moves
+**scorch, crater and frost the terrain**, fish the lakes, weather the
+storms, foil **Team Rocket**, earn the **Bike Voucher** and ride the
+Bicycle, earn all **eight gym badges** and climb Victory Road to the
 **Champion fight at the Indigo Plateau**. Authentic Gen 1 underneath: real
 stats, DVs, Stat Exp, moves, PP, catch rates, growth curves, the type
 chart — and opponents who **start out dim and wise up as you collect
@@ -18,14 +19,14 @@ badges**.
 The story opens the way it always has — a **title screen with three save
 files**, then **Professor Oak's monologue**, naming yourself and his
 grandson, choosing your starter, and getting jumped by your **rival in the
-lab** — except this Kanto has been thoroughly modernized: Oak laments that
-people only meet Pokémon through their feeds, every town square has
-**doomscrolling NPCs** lit by their phone screens, your rival is a
-**streamer farming content** off your battles (he ambushes you at 2 and 5
-badges, runs the counter-starter line, and waits at the Indigo Plateau as
-Champion under the name you gave him), and your own Pokédex ships with
-**PokéGram** pre-installed — press **G** for an infinite feed that
-occasionally begs you to go touch the tall grass.
+lab**. It's still Pokémon through and through; the modern world just peeks
+in around the edges: town squares are full of **strolling townsfolk** with
+route gossip (and the odd one who never looks up from their phone), your
+rival is a **streamer farming content** off your battles (he ambushes you
+at 2 and 5 badges, runs the counter-starter line, and waits at the Indigo
+Plateau as Champion under the name you gave him), and your Pokédex ships
+with **PokéGram** — press **G** for an infinite feed that occasionally
+begs you to go touch the tall grass.
 
 Every Pokémon in the world is a **custom procedural 3D model** — all 151
 species are assembled at runtime from low-poly primitives (no model files,
@@ -46,6 +47,9 @@ npm run dev
 `npm run dev` **opens the game in your browser automatically** (Vite's
 `--open`); if nothing pops, it's at **http://localhost:5173**.
 
+Setting up on a Windows PC from scratch? See
+[README-WINDOWS.md](README-WINDOWS.md).
+
 - `npm run build` / `npm run preview` — production build (outputs `dist/`)
 - `npm run typecheck` — TypeScript check
 - `npm test` — headless-browser e2e suite (107 checks; needs Chrome + a dev
@@ -58,31 +62,40 @@ npm run dev
 
 ## Controls
 
+Modern FPS-style bindings, split by context. **Overworld:**
+
 | Input | Action |
 |---|---|
-| **WASD** | move |
-| **Mouse** | look (click once to capture the pointer) |
+| **WASD** | move · **Mouse** look (click once to capture the pointer) |
 | **Shift** | run · **Space** jump |
 | **Tap click** | quick-throw the equipped Ball at your target |
-| **Hold click** | **aim mode**: time slows, a trajectory arc + timing ring appear; release to throw, flick sideways for a **curveball**, right-click to cancel |
+| **Hold click** | **aim mode**: time slows, a trajectory arc appears; release to throw, right-click to cancel |
 | **Mouse wheel** | cycle Poké / Great / Ultra Ball |
-| **B** | toss a Razz Berry to the targeted wild (easier catch) |
 | **F** | start a battle with the targeted Pokémon |
 | **E** | interact (trainers, Nurse Joy, PC, shop, berry bushes, fishing, petting your partner...) |
 | **V** | mount / dismount your ride (Bicycle, and later... a truck) |
 | **L** | flashlight (caves get *dark*) |
-| **1–4** | use moves in battle (turns, cooldowns or aimed — depends on your battle style) |
-| **Q** | **dodge** — call it while the enemy telegraphs its attack; a clean dodge opens a counter window *(Arena / First-Person)* |
-| **T** | **take over / step out** — possess your Pokémon, or return to the trainer *(First-Person style)* |
-| **Space** | *(possessed)* **signature dodge** — dash, Blink, Burrow, Swoop... whatever your species does |
-| **Click** | *(possessed)* repeat your last move |
-| **C** | switch Pokémon · **R** run from wild battles |
-| **G** | **PokéGram** — doomscroll the in-game feed (your playtime is on the lock screen, no judgement) |
+| **G** | **PokéGram** — the in-game feed (your playtime is on the lock screen, no judgement) |
 | **Tab** | Pokédex · **P** party · **I** bag · **Esc** pause (cheats live here) |
+
+**In battle** the kit moves to your left hand — no Pokédex, no clutter:
+
+| Input | Action |
+|---|---|
+| **1–4** | moves — in real-time styles **all four run independent cooldowns**, no shared lockout |
+| **Space** | **dodge** — as the trainer, a Speed-based sidestep when the enemy telegraphs; possessed, your species' **signature dodge** (Blink, Burrow, Swoop, Brace...) |
+| **Tab** | **switch Pokémon** — the fight holds its breath while you pick |
+| **Q** | throw the equipped **Poké Ball** (wild battles) |
+| **E** | **quick-heal**: best Potion in the bag, or a revive when someone's down |
+| **T** | **take over / step out** of your Pokémon *(First-Person style)* |
+| **F** | run from wild battles · **Esc** pause · **I** bag |
+| **Click** | *(possessed)* repeat your last move |
 
 ## The region
 
-The overworld follows the **original Red/Blue/Yellow town map**:
+The overworld follows the **original Red/Blue/Yellow town map** at full
+adventure scale — a 1.2 km × 1.2 km Kanto where Routes earn their numbers,
+walking is for routes and the Bike and truck are for crossing the map:
 
 - **West column** — Pallet Town, north past Viridian City (Earth Gym) and
   Viridian Forest up to Pewter City (Boulder Gym).
@@ -115,21 +128,23 @@ classic town-map silhouette.
   over RBY-style). New games run the real intro: Oak's *"Welcome to the
   world of POKÉMON!"* speech beside a showcase Nidorino, **you name
   yourself and your rival** (presets or free text), and after you take your
-  starter and your Pokédex (*"Press TAB for science. Press G to doomscroll.
-  I trust you to know the difference!"*), your rival grabs the counter-pick
-  and battles you **right outside the lab** — his unboxing stream starts in
-  five.
+  starter and your Pokédex (*"Press TAB for science. The other thing... I
+  trust you to manage."*), your rival grabs the counter-pick and battles
+  you **right outside the lab** — his unboxing stream starts in five.
 - **A rival with a content schedule.** He ambushes you again at **two
   badges** and **five badges**, his team growing along the counter-starter
   line (Pidgeotto, Kadabra, his evolving starter...), every loss "deleted
   from the VOD." At the Indigo Plateau he's **Champion — under the name you
   gave him** — and the Hall of Fame records the trainer name you chose.
   Every line of dialogue in Kanto knows both names.
-- **Modern Kanto, visibly.** Every town square has **phone-zombie
-  civilians**: heads bowed, thumbs flicking, faces lit by the glow of their
-  screens (strongest at night). Interrupt them (E) for rotating takes —
-  *"TECHNOLOGY is incredible! Even Mt. Moon has 5G!"* — and gym wins now
-  trend on PokéGram.
+- **Towns that live.** Every square has **strolling townsfolk** — they amble
+  between spots, arms swinging, stop to watch you pass, and chat (E) proper
+  route gossip: gym hints, berry spots, Lavender ghost stories. One local
+  per region never looks up from their phone — interrupt them (E) for
+  rotating takes (*"TECHNOLOGY is incredible!"*) and watch their screen glow
+  in the dark. Wild Pokémon left alone slip into **ambient routines**: they
+  graze the meadows, lap at the shoreline, and **nap under the moon** —
+  sneak close at night and you'll startle them awake.
 - **PokéGram (G).** A full doomscroll app on your Pokédex: an **infinite
   feed** of trainer posts, gym-leader takes, sponsored Silph Co. slop and
   your rival's grindset updates — pull for more, it never ends, except
@@ -183,10 +198,11 @@ classic town-map silhouette.
   (sticker price: ₽1,000,000) and ride with **V** at double speed —
   handlebars, bell and all. After eight badges, the infamous S.S. Anne
   truck's engine finally turns over.
-- **Catching 2.0.** Balls are physical projectiles with gravity, bounces and
-  splashes. Hold to aim: bullet-time, trajectory preview, a shrinking timing
-  ring (Nice / Great / Excellent multipliers), curveball bonuses, berry
-  bonuses, and rare **critical catches** that scale with your Pokédex.
+- **Catching, kept simple.** Balls are physical projectiles with gravity,
+  bounces and splashes. Tap to quick-throw at your target; hold to **aim**:
+  bullet-time and a trajectory arc, with a clean **aimed-throw bonus** on
+  the catch roll and rare **critical catches** that scale with your Pokédex.
+  No timing rings, no curveball wrist-work — line it up and let fly.
 - **Three battle styles — pick yours in the pause menu (Esc).**
   - **Classic** is the originals: true turn-based rounds. You pick a move
     (or throw, switch, item, run — each spends your turn), priority and Speed
@@ -195,10 +211,10 @@ classic town-map silhouette.
     A thrown Ball is your whole turn **even if it misses** — the wild gets
     its free swing and play comes straight back to you — and the bag and
     switch menus are sealed while a round is still resolving.
-  - **Arena** (default) is the balanced middle: real-time with cooldowns,
-    watched from over your Pokémon's shoulder. Enemies telegraph attacks
-    (red bar): hit **Q** to dodge — success depends on Speed, and a clean
-    dodge opens a counter window. Honest, even-handed numbers.
+  - **Arena** (default) is the balanced middle: real-time with per-move
+    cooldowns, watched from over your Pokémon's shoulder. Enemies telegraph
+    attacks (red bar): hit **Space** to dodge — success depends on Speed,
+    and a clean dodge opens a counter window. Honest, even-handed numbers.
   - **First-Person** is the high-skill mode: every battle starts INSIDE your
     Pokémon, and the damage swings both ways with how well you play.
 - **First-Person style — BE your Pokémon.** The camera dives into your
@@ -266,8 +282,8 @@ classic town-map silhouette.
   Plateau. His team scales to yours and his ace counters your starter. Win
   for the fanfare, the confetti and your **Hall of Fame** entry (signed
   with your trainer name) — then the rematches scale up.
-- **New items**: Oran/Razz Berries (pick them from roadside bushes), Repel,
-  Lure, Escape Rope, Nugget.
+- **New items**: Oran Berries (pick them from roadside bushes), Repel, Lure,
+  Escape Rope, Nugget.
 - **All the Gen 1 core** from before: DVs + Stat Exp feeding the real stat
   formula, four growth curves, 165 moves with PP (Struggle when dry), Gen 1
   crit rates, first-strike battle openings, authentic encounter tables per
@@ -291,8 +307,8 @@ Everything is also scriptable from the console via `DEBUG.*` (e.g.
    beat your rival's counter-pick outside the lab. You start with 5 Poké
    Balls and ₽600 — and your starter at your heels.
 2. Weaken wilds in battle (F) before throwing; or skip the fight and trust
-   your aim — held throws with good ring timing catch well above their
-   weight. Skittish species flee, aggressive ones charge you. Feeling brave?
+   your aim — a held, aimed throw catches well above its weight. Skittish
+   species flee, aggressive ones charge you. Feeling brave?
    Switch the **battle style** (Esc) to **First-Person** and fight as the
    Pokémon yourself — or to **Classic** for pure RBY turns.
 3. Heal free at any **Pokémon Center** (sets your respawn), stock up at the
@@ -321,7 +337,7 @@ src/game.ts       stats/XP/PP, habitat spawning/AI (sky, water, trees, tall
                   items, cheats, save
 
 src/monmodel.ts   procedural 3D models + animators for all 151 species
-src/fx.ts         particle engine, move animations, aim arc/ring, celebrations
+src/fx.ts         particle engine, move animations, aim arc, celebrations
 src/ui.ts         HUD, Pokédex, bag, party, PC, shop, dialogs, Hall of Fame, cheats
 src/audio.ts      synthesized WebAudio SFX, species cries, rain/thunder, ambience
 src/data.js       GENERATED Gen 1 data (151 Pokémon, 165 moves, PP, growth, types)
@@ -333,7 +349,7 @@ tools/offline-probe.mjs  proves the game runs with all external requests blocked
 tools/gallery-shot.mjs   screenshots every 3D model in batches for review
 tools/possess-shot.mjs   possession-mode diagnostic (take over, move, fire, eject)
 tools/story-shot.mjs     walks the real intro path (title → Oak → naming →
-                         lab battle → phone zombies → PokéGram) with screenshots
+                         lab battle → townsfolk → PokéGram) with screenshots
 tools/habitat-shot.mjs   habitat showcase (birds aloft, swimmers, canopy
                          perchers, the swoop-down battle, mid-air catches)
 tools/battle-stress.mjs  battle-mechanics stress probe (all three styles:

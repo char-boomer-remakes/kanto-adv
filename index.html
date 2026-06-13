@@ -7,9 +7,11 @@
 <link rel="icon" href="data:,">
 <style>
 :root{
-  --panel: rgba(13,17,26,.88); --panel2: rgba(20,26,40,.92); --line:#3a4a66;
+  --panel: rgba(11,15,24,.66); --panel2: rgba(15,20,33,.88); --line:rgba(146,170,214,.22);
+  --line2:rgba(146,170,214,.38);
   --gold:#ffcc33; --red:#ff5a5a; --green:#5ad66f; --blue:#5aa2ff; --tx:#e8eefc;
-  --dim:#9fb0cc; --shadow: 0 6px 24px rgba(0,0,0,.45);
+  --dim:#9fb0cc; --shadow: 0 10px 30px rgba(0,0,0,.42);
+  --glass: blur(14px) saturate(1.35);
 }
 *{box-sizing:border-box; margin:0; padding:0; user-select:none; -webkit-user-select:none}
 html,body{width:100%;height:100%;overflow:hidden;background:#06080d;color:var(--tx);
@@ -17,8 +19,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#06080d;color:var(--
 canvas#c{position:fixed;inset:0;display:block}
 img.px{image-rendering:pixelated}
 .hidden{display:none!important}
-button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);
-  border-radius:8px;padding:6px 12px;cursor:pointer}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line2);
+  border-radius:10px;padding:6px 12px;cursor:pointer;transition:border-color .12s,color .12s,box-shadow .12s}
 button:hover{border-color:var(--gold);color:var(--gold)}
 button.primary{background:#2c3d61;border-color:#5a7bb8}
 input[type=range]{width:160px;accent-color:var(--gold)}
@@ -27,12 +29,31 @@ small,.small{font-size:11px;color:var(--dim)}
 
 /* ---------- HUD ---------- */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:5}
-#crosshair{position:absolute;left:50%;top:50%;width:14px;height:14px;transform:translate(-50%,-50%);opacity:.85}
-#crosshair::before,#crosshair::after{content:"";position:absolute;background:#fff;box-shadow:0 0 3px #000}
-#crosshair::before{left:6px;top:0;width:2px;height:14px}
-#crosshair::after{left:0;top:6px;width:14px;height:2px}
-#crosshair.active::before,#crosshair.active::after{background:var(--gold)}
-.hudpanel{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+/* modern dot crosshair: a steady center point, a soft ring when locked on */
+#crosshair{position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;
+  transform:translate(-50%,-50%);background:rgba(255,255,255,.92);
+  box-shadow:0 0 4px rgba(0,0,0,.9);opacity:.9}
+#crosshair::before{content:"";position:absolute;left:50%;top:50%;width:30px;height:30px;border-radius:50%;
+  border:1.5px solid transparent;transform:translate(-50%,-50%);transition:border-color .14s,width .14s,height .14s}
+#crosshair.active{background:var(--gold)}
+#crosshair.active::before{border-color:rgba(255,204,51,.6)}
+/* hitmarker: four ticks pop around the crosshair when a possessed hit lands */
+#hitmark{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);opacity:0}
+#hitmark span{position:absolute;left:50%;top:50%;width:9px;height:2px;background:#fff;box-shadow:0 0 3px rgba(0,0,0,.8)}
+#hitmark span:nth-child(1){transform:translate(-50%,-50%) rotate(45deg) translateX(-9px)}
+#hitmark span:nth-child(2){transform:translate(-50%,-50%) rotate(135deg) translateX(-9px)}
+#hitmark span:nth-child(3){transform:translate(-50%,-50%) rotate(225deg) translateX(-9px)}
+#hitmark span:nth-child(4){transform:translate(-50%,-50%) rotate(315deg) translateX(-9px)}
+#hitmark.strong span{background:var(--gold)}
+#hitmark.pop{animation:hitpop .22s ease-out}
+@keyframes hitpop{0%{opacity:1;transform:translate(-50%,-50%) scale(1.25)}100%{opacity:0;transform:translate(-50%,-50%) scale(.8)}}
+/* hurt flash: red vignette pulse when your possessed Pokémon takes a hit */
+#hurtflash{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;
+  background:radial-gradient(ellipse at center,transparent 55%,rgba(255,40,40,.45) 100%)}
+#hurtflash.pop{animation:hurtpop .4s ease-out}
+@keyframes hurtpop{0%{opacity:1}100%{opacity:0}}
+.hudpanel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+  backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass)}
 #topleft{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:8px}
 #statline{display:flex;gap:10px;align-items:center;padding:8px 12px}
 #money{color:var(--gold);font-weight:700}
@@ -48,53 +69,61 @@ small,.small{font-size:11px;color:var(--dim)}
 .ballicon.great{background:linear-gradient(#3b6fe2 0 50%,#fff 50% 100%)}
 .ballicon.ultra{background:linear-gradient(#2b2b33 0 50%,#fff 50% 100%)}
 #minimapWrap{position:absolute;right:14px;top:14px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:5px}
-#minimap{border-radius:50%;border:2px solid var(--line);display:block}
+#minimap{border-radius:50%;border:2px solid var(--line2);display:block}
 #zonetxt{font-size:11px;font-weight:700;color:var(--gold);letter-spacing:.5px;max-width:170px;text-align:center}
 #clockrow{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim)}
 #clockicon{width:12px;height:12px;border-radius:50%;background:var(--gold)}
 #partyStrip{position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:6px}
-.pslot{display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px 9px 3px 3px;min-width:172px}
-.pslot.active{border-color:var(--gold)}
+.pslot{display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:3px 9px 3px 3px;min-width:172px;backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass)}
+.pslot.active{border-color:rgba(255,204,51,.65);box-shadow:0 0 12px rgba(255,204,51,.12)}
 .pslot.fainted{opacity:.45;filter:saturate(.3)}
 .pslot img{width:36px;height:36px}
+.pslot .slotkey{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;
+  padding:0 4px;margin-left:4px;background:rgba(26,34,51,.6);flex:none}
+.pslot.active .slotkey{color:var(--gold);border-color:rgba(255,204,51,.5)}
 .pslot .bars{flex:1;display:flex;flex-direction:column;gap:3px}
 .pslot .nm{font-size:11px;font-weight:700;display:flex;justify-content:space-between}
-.hpbar{height:6px;background:#1a2233;border-radius:3px;overflow:hidden}
+.hpbar{height:6px;background:rgba(26,34,51,.85);border-radius:3px;overflow:hidden}
 .hpbar>div{height:100%;background:var(--green);transition:width .25s}
 .hpbar>div.mid{background:#ffc23d}.hpbar>div.low{background:var(--red)}
-.xpbar{height:3px;background:#1a2233;border-radius:2px;overflow:hidden}
+.xpbar{height:3px;background:rgba(26,34,51,.85);border-radius:2px;overflow:hidden}
 .xpbar>div{height:100%;background:#7f7fff}
 #toasts{position:absolute;left:50%;top:60px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center}
-.toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
-  padding:8px 16px;border-radius:8px;animation:toastin .25s ease-out;max-width:520px;text-align:center}
+.toast{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--gold);
+  padding:8px 16px;border-radius:10px;animation:toastin .25s ease-out;max-width:520px;text-align:center;
+  backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass)}
 .toast.bad{border-left-color:var(--red)}
 .toast.good{border-left-color:var(--green)}
 @keyframes toastin{from{opacity:0;transform:translateY(-8px)}to{opacity:1}}
 #nameplate{position:absolute;left:50%;top:56%;transform:translateX(-50%);padding:5px 13px;text-align:center;font-size:12px}
 #prompt{position:absolute;left:50%;bottom:170px;transform:translateX(-50%);padding:7px 14px;font-size:13px}
 #prompt b{color:var(--gold)}
-#hint{position:absolute;right:14px;bottom:14px;padding:9px 12px;font-size:11px;color:var(--dim);max-width:240px;line-height:1.7}
+#hint{position:absolute;right:14px;bottom:14px;padding:9px 12px;font-size:11px;color:var(--dim);max-width:250px;line-height:1.8}
 #hint b{color:var(--tx)}
-.kbd{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:0 5px;background:#1a2233;font-size:10px;color:var(--tx)}
+.kbd{display:inline-block;border:1px solid var(--line2);border-radius:4px;padding:0 5px;background:rgba(26,34,51,.8);font-size:10px;color:var(--tx)}
 
-/* battle */
-#battlebar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:flex-end;pointer-events:auto}
-.movebtn{position:relative;width:128px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
-  padding:7px 9px;cursor:pointer;overflow:hidden;text-align:left}
+/* battle — action bar, hotbar style */
+#battlebar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px;align-items:flex-end;pointer-events:auto}
+.movebtn{position:relative;width:132px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);
+  padding:8px 10px;cursor:pointer;overflow:hidden;text-align:left;
+  backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass)}
 .movebtn .mname{font-weight:700;font-size:12px;position:relative;z-index:2}
 .movebtn .minfo{font-size:10px;color:var(--dim);position:relative;z-index:2;display:flex;justify-content:space-between;margin-top:2px}
 .movebtn .tchip{position:relative;z-index:2}
-.movebtn .cd{position:absolute;left:0;bottom:0;width:100%;background:rgba(90,140,255,.22);z-index:1;height:0%}
-.movebtn.ready{border-color:#6f8fc9;box-shadow:0 0 10px rgba(110,150,255,.25)}
+.movebtn .cd{position:absolute;left:0;bottom:0;width:100%;background:rgba(20,28,46,.78);z-index:1;height:0%}
+.movebtn.ready{border-color:var(--line2);box-shadow:inset 0 0 0 1px rgba(146,170,214,.12)}
 .movebtn.ready:hover{border-color:var(--gold)}
+.movebtn.ready .key{color:var(--tx);border-color:var(--line2)}
 .movebtn.disabled{opacity:.4;cursor:default}
 .movebtn.far{opacity:.45}
-.movebtn.far::after{content:"TOO FAR";position:absolute;right:6px;top:4px;font-size:9px;font-weight:800;color:var(--red);z-index:3}
-.movebtn .key{position:absolute;right:6px;top:6px;z-index:2;font-size:10px;color:var(--dim)}
+.movebtn.far::after{content:"TOO FAR";position:absolute;right:6px;bottom:5px;font-size:9px;font-weight:800;color:var(--red);z-index:3}
+.movebtn .key{position:absolute;right:6px;top:6px;z-index:2;font-size:10px;color:var(--dim);
+  border:1px solid var(--line);border-radius:4px;padding:0 4px;background:rgba(26,34,51,.6)}
 #battleside{display:flex;flex-direction:column;gap:6px}
-#battleside button{font-size:12px;padding:5px 10px}
-#enemyplate{position:absolute;left:50%;top:14px;transform:translateX(-50%);padding:8px 16px;min-width:230px}
-#enemyplate .nm{display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-bottom:4px}
+#battleside button{font-size:12px;padding:5px 10px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:8px}
+#enemyplate{position:absolute;left:50%;top:14px;transform:translateX(-50%);padding:8px 16px;min-width:240px}
+#enemyplate .nm{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13px;margin-bottom:4px}
 .tchip{display:inline-block;border-radius:4px;padding:1px 7px;font-size:10px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);margin-right:3px;text-transform:uppercase;letter-spacing:1px}
 
 /* floaters (world-anchored HTML) */
@@ -167,7 +196,6 @@ small,.small{font-size:11px;color:var(--dim)}
 .itemicon.superpotion{background:linear-gradient(#ffb13d 0 35%,#ffe9c9 35%)}
 .itemicon.revive{background:radial-gradient(circle at 50% 42%,#ffe781 0 45%,#caa83d 48%);border-radius:50% 50% 40% 40%}
 .itemicon.oranberry{background:radial-gradient(circle at 40% 35%,#9fd8ff 0 30%,#4d96ff 60%);border-radius:50%}
-.itemicon.razzberry{background:radial-gradient(circle at 40% 35%,#ffb3c5 0 30%,#ff6b8b 60%);border-radius:50%}
 .itemicon.repel{background:linear-gradient(#ffd23d 0 30%,#d9e2f2 30%);border-radius:4px}
 .itemicon.escaperope{background:repeating-linear-gradient(45deg,#caa83d 0 4px,#8a6f1f 4px 8px);border-radius:50%}
 .itemicon.lure{background:linear-gradient(#ffa3d1 0 40%,#f2d9e6 40%);border-radius:50% 50% 20% 20%}
@@ -300,6 +328,7 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
 
 <div id="hud">
   <div id="crosshair"></div>
+  <div id="hitmark"><span></span><span></span><span></span><span></span></div>
   <div id="topleft">
     <div id="statline" class="hudpanel">
       <span id="money">₽0</span>
@@ -322,15 +351,14 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
   <div id="nameplate" class="hudpanel hidden"></div>
   <div id="prompt" class="hudpanel hidden"></div>
   <div id="aimmeter" class="hidden"><div></div></div>
-  <div id="aimhint" class="hidden">release to throw · flick sideways to curve · right-click to cancel</div>
+  <div id="aimhint" class="hidden">release to throw · right-click to cancel</div>
   <div id="catchbanner" class="hidden"></div>
   <div id="telegraph" class="hidden"><div></div></div>
   <div id="counterhint" class="hidden">COUNTER WINDOW!</div>
   <div id="hint" class="hudpanel">
     <b>WASD</b> move &nbsp;<b>Shift</b> run &nbsp;<b>Space</b> jump<br>
-    <b>Tap</b> throw &nbsp;<b>Hold</b> aim+curve &nbsp;<b>B</b> berry<br>
-    <b>F</b> battle &nbsp;<b>E</b> interact &nbsp;<b>Q</b> dodge &nbsp;<b>L</b> light<br>
-    <span class="kbd">Tab</span> Pokédex <span class="kbd">P</span> party <span class="kbd">I</span> bag <span class="kbd">G</span> feed <span class="kbd">Esc</span> menu
+    <b>Click/G</b> throw &nbsp;<b>Hold</b> aim &nbsp;<b>F</b> battle &nbsp;<b>E</b> interact<br>
+    <b>V</b> ride &nbsp;<b>L</b> light &nbsp;<span class="kbd">Tab</span> dex <span class="kbd">P</span> party <span class="kbd">I</span> bag <span class="kbd">Esc</span> menu
   </div>
   <div id="enemyplate" class="hudpanel hidden">
     <div class="nm"><span id="ename">?</span><span id="elv"></span><span id="etemper"></span></div>
@@ -338,13 +366,14 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
   </div>
   <div id="possessbar" class="hidden"></div>
   <div id="battlebar" class="hidden">
-    <div id="movebtns" style="display:flex;gap:8px"></div>
+    <div id="movebtns" style="display:flex;gap:10px"></div>
     <div id="battleside">
-      <button id="btnDodge">Dodge <span class="kbd">Q</span></button>
+      <button id="btnDodge">Dodge <span class="kbd">Spc</span></button>
       <button id="btnPossess">Take Over <span class="kbd">T</span></button>
-      <button id="btnSwitch">Switch <span class="kbd">C</span></button>
-      <button id="btnBag">Bag <span class="kbd">I</span></button>
-      <button id="btnRun">Run <span class="kbd">R</span></button>
+      <button id="btnSwitch">Switch <span class="kbd">1-6</span></button>
+      <button id="btnBall">Ball <span class="kbd">G</span></button>
+      <button id="btnHeal">Heal <span class="kbd">Z</span></button>
+      <button id="btnRun">Run <span class="kbd">X</span></button>
     </div>
   </div>
   <div id="floaters"></div>
@@ -353,15 +382,16 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
 <div id="lockmsg" class="hidden">Click to play</div>
 <div id="fade"></div>
 <div id="underwater"></div>
+<div id="hurtflash"></div>
 
 <div id="title" class="hidden">
   <div id="tlogo">
     <div class="big">KANTO</div>
     <div class="sub">ADVENTURE</div>
-    <div class="tag">a first-person Pokémon journey — faithful to '96, doomscrolling like it's today</div>
+    <div class="tag">a first-person Pokémon journey across Kanto — faithful to '96, modern where it counts</div>
   </div>
   <div id="slots"></div>
-  <div id="titlefoot">progress auto-saves to your browser · three save files, RBY rules<br>WASD to walk · hold click to aim a Ball · G to doomscroll</div>
+  <div id="titlefoot">progress auto-saves to your browser · three save files, RBY rules<br>WASD to walk · Shift to run · hold click to aim a Ball</div>
 </div>
 
 <div id="m-name" class="modal hidden"><div class="sheet">
@@ -372,7 +402,7 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
 </div></div>
 
 <div id="m-gram" class="modal hidden"><div class="sheet"><div id="gramphone">
-  <div id="gramtop"><b>PokéGram</b><button data-close style="font-size:11px;padding:3px 10px">Put phone away (G)</button></div>
+  <div id="gramtop"><b>PokéGram</b><button data-close style="font-size:11px;padding:3px 10px">Put phone away (Esc)</button></div>
   <div id="gramfeed"></div>
   <div id="gramfoot"><span id="gramtime">screen time today: 0m</span><span>▲ pull for more — it never ends</span></div>
 </div></div></div>
@@ -454,7 +484,7 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
     <option value="trained">Trained — solid move picks</option>
     <option value="ace">Ace — always optimal</option>
   </select></div>
-  <div class="setrow"><span>Check your phone</span><button id="btnGram">PokéGram <span class="kbd">G</span></button></div>
+  <div class="setrow"><span>Check your PokéGear</span><button id="btnGram">PokéGram</button></div>
   <div class="setrow"><span>Cheats &amp; fun stuff</span><button id="btnCheats">Open Cheats…</button></div>
   <div class="setrow"><span>Progress is auto-saved</span><button id="btnReset" class="red">Reset save…</button></div>
   <div class="right"><button id="btnResume" class="primary">Resume (Esc)</button></div>
@@ -464,7 +494,7 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
   <div class="titlebig gold">★ HALL OF FAME ★</div>
   <p class="small" id="famesub" style="margin:6px 0"></p>
   <div id="famelist"></div>
-  <p style="line-height:1.6;color:var(--dim)">You are the new Champion of mini-Kanto!<br>The adventure continues — rematches scale up, and Mewtwo still waits in Cerulean Cave...</p>
+  <p style="line-height:1.6;color:var(--dim)">You are the new Champion of Kanto!<br>The adventure continues — rematches scale up, and Mewtwo still waits in Cerulean Cave...</p>
   <div class="right"><button data-close class="primary">Keep exploring</button></div>
 </div></div>
 

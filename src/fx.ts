@@ -71,7 +71,6 @@ export class FX {
   points: THREE.Points;
   lights: PooledLight[];
   aimLine: THREE.Line | null = null;
-  aimRing: THREE.Mesh | null = null;
   // battle scars on the land: scorch marks, craters, frost, puddles
   decals: { mesh: THREE.Mesh; t: number; life: number; a0: number }[] = [];
   gDecal!: THREE.CircleGeometry;
@@ -1136,21 +1135,6 @@ export class FX {
     (this.aimLine.material as THREE.LineDashedMaterial).color.set(col);
     this.aimLine.visible = true;
   }
-  // Shrinking timing ring around the aim target (GO-style Nice/Great/Excellent).
-  setAimRing(at: THREE.Vector3 | null, r = 1, col = "#6bcB77") {
-    if (!at) { if (this.aimRing) this.aimRing.visible = false; return; }
-    if (!this.aimRing) {
-      this.aimRing = this.mesh(this.gRing, this.basic("#fff", 0.85)) as THREE.Mesh;
-      (this.aimRing.material as THREE.Material & { _shared?: boolean })._shared = false;
-      this.aimRing.renderOrder = 6;
-    }
-    this.aimRing.visible = true;
-    this.aimRing.position.copy(at);
-    this.aimRing.quaternion.copy((this.camera as THREE.PerspectiveCamera).quaternion);
-    this.aimRing.scale.setScalar(Math.max(0.05, r));
-    (this.aimRing.material as THREE.MeshBasicMaterial).color.set(col);
-  }
-
   // ------------------------------------------------------- new celebrations
   confetti(at: THREE.Vector3, big = false) {
     const cols = ["#ff6b6b", "#ffd93d", "#6bcB77", "#4d96ff", "#c780fa"];

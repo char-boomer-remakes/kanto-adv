@@ -1,11 +1,11 @@
 // Gameplay: wild spawning + AI, real-time battle system (Gen 1 damage model),
-// catching (physical Ball throws, aim mode, timing rings), follower Pokémon,
+// catching (physical Ball throws with a clean aim mode), follower Pokémon,
 // trainers, Team Rocket, the Champion fight, fishing, leveling/evolution,
 // economy, interactions, save/load.
 import * as THREE from "three";
 import { POKEDEX, MOVES, DEX, typeMult } from "./data.js";
 import type { Move } from "./data.js";
-import { buildPerson, makeTextSprite, World } from "./world.js";
+import { buildPerson, makeTextSprite, World, MAP_SCALE, WORLD_R } from "./world.js";
 import { buildMonRig, MON3D_SPECS } from "./monmodel.js";
 import type { MonRig } from "./monmodel.js";
 import type { FX } from "./fx";
@@ -13,7 +13,7 @@ import type { AudioMan } from "./audio";
 
 const SAVE_KEY = "kanto_adventure_save_v1";
 const SLOT_KEY = "kanto_adventure_slot";
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 5;   // v5: mini-Kanto grew into full-scale Kanto
 
 // ------------------------------------------------------- save slots (v9)
 // Three save files, RBY-style "CONTINUE / NEW GAME" on a title screen.
@@ -45,6 +45,10 @@ export function fmtPlaytime(sec: number) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
   return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
 }
+// Battle move hotkeys — QWER-style, bent around WASD so a hand never leaves
+// the movement keys. Shared with the UI so the buttons label themselves.
+export const MOVE_KEYS = ["q", "e", "r", "f"];
+
 const V3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
@@ -69,7 +73,6 @@ export const ITEMS = {
   superpotion: { name: "Super Potion", price: 700,  heal: 50,  desc: "Restores 50 HP of one Pokémon." },
   revive:      { name: "Revive",       price: 1500, revive: 0.5, desc: "Revives a fainted Pokémon with half HP." },
   oranberry:   { name: "Oran Berry",   price: 80,   heal: 20,  desc: "A juicy berry. Restores 20 HP. Grows on bushes along the routes." },
-  razzberry:   { name: "Razz Berry",   price: 150,  feed: 1.5, desc: "Press B to feed a targeted wild Pokémon — it becomes much easier to catch." },
   repel:       { name: "Repel",        price: 350,  use: "repel", desc: "Wild Pokémon won't charge at you for 3 minutes." },
   escaperope:  { name: "Escape Rope",  price: 250,  use: "rope", desc: "Whisks you back to the last Pokémon Center." },
   lure:        { name: "Lure",         price: 400,  use: "lure", desc: "Wild Pokémon appear far more often for 3 minutes." },
@@ -129,43 +132,47 @@ const TRAINERS = [
   // The endgame: your rival waits at the Indigo Plateau with a full team.
   // His final slot counters your starter, exactly like the old days.
   { id: "blue", champion: true, name: "Champion Blue", look: { shirt: "#5e35b1", pants: "#3e2723", hair: "#8d6e63" }, pos: [-212, -196], party: [18, 65, 112, 59, 130, 9], lvs: [40, 41, 41, 42, 43, 45], pay: 99, payMul: 2.5, dlg: [
-    "{player}! Welcome to the INDIGO PLATEAU. I streamed my whole run here — 'fastest Champion out of Pallet Town, EVER.' Time to defend the title!",
-    "WHAT?! I picked the wrong Pokémon... You did it, {player}. You're the Champion. Chat is going to roast me forever. ...Gramps would be proud of you.",
+    "{player}! Welcome to the INDIGO PLATEAU. Fastest Champion out of Pallet Town, EVER — and I'm not handing that over. Time to defend the title!",
+    "WHAT?! I picked the wrong Pokémon... You did it, {player}. You're the Champion. ...Gramps would be proud of you.",
     "I've been training nonstop since you beat me. No phone, no feed, just Pokémon. The plateau rematch is ON!",
   ] },
 ] as any[];
+// TRAINERS positions are authored in design space (the compact Kanto sketch);
+// expand them to world space once, the moment the module loads
+for (const t of TRAINERS) if (t.pos) t.pos = [t.pos[0] * MAP_SCALE, t.pos[1] * MAP_SCALE];
 // your rival picked the starter strong against yours
 const COUNTER_STARTER = { 1: 6, 4: 9, 7: 3 };
 
-// ----------------------------------------------------- modern Kanto (v9)
-// Pallet's professor still believes in fresh air; everyone else got a phone.
-// Civilian NPCs stand around doomscrolling — chat with them for the lore.
+// --------------------------------------------------------- townsfolk (v9)
+// Kanto's towns are alive again: most folks stroll their square and trade
+// proper route gossip; a couple never did look up from PokéGram. (Their loss.)
 const CIV_LINES = [
-  ["TECHNOLOGY is incredible!", "You can doomscroll PokéGram from anywhere now. Even Mt. Moon has 5G!"],
-  ["Shh — I'm watching a Gym battle at 2x speed.", "Why train for eight badges when you can watch someone else do it?"],
+  ["Welcome! This town is small, but we like it that way.", "The routes get wilder the further you walk. Pack Potions!"],
+  ["My Pokémon and I take this walk every single day.", "Rain or shine. Mostly shine lately — lovely, isn't it?"],
+  ["The Gym Leaders train harder than anyone I know.", "Mind the type matchup and you might just keep up."],
+  ["Tall grass means wild Pokémon. Everybody knows that.", "What they DON'T tell you: berries grow thickest off the path."],
+  ["I saw a trainer ride past on a BICYCLE!", "And someone's been roaring around in a TRUCK. A truck! In Kanto!"],
+  ["My Growlithe sleeps by the door, rain or shine.", "Best doorbell in Kanto. Loyal, too."],
+  ["They say a ghost wanders the tower in Lavender...", "I say it's just a mother watching over her child. Sad, really."],
+  ["Old folks say the Moon Stone fell from the sky.", "Clefairy dance around it on clear nights. I've seen it. Once."],
+  ["A Snorlax once napped on the route for a MONTH.", "Slept through three festivals. Magnificent beast."],
+  ["The League waits past Victory Road, up northwest.", "Eight badges or they won't even open the door."],
+  ["TECHNOLOGY is incredible!", "You can post on PokéGram from anywhere now. Even Mt. Moon has signal!"],
+  ["Shh — I'm watching a Gym battle at 2x speed.", "Watching counts as training! ...Okay, it's mostly memes."],
   ["My Rattata video hit 10 MILLION views.", "It's in the top percentage of Rattata content."],
-  ["I've been scrolling since sunrise...", "My neck hurts and I've seen one (1) real Pokémon today. Worth it?"],
-  ["A wild influencer used SPONSORED POST!", "It's super effective against my wallet..."],
-  ["My grandpa says people used to TALK to each other on routes.", "Sounds fake, but okay."],
-  ["I taught my Porygon to filter my feed.", "Now it only shows me Magikarp flops. Life is good."],
-  ["Day 47 of replying to the Champion's posts.", "He hasn't noticed me yet. Today's the day, I can feel it."],
-  ["The Pokémon League stream got 2 million viewers!", "Imagine actually BEING there though... couldn't be me."],
-  ["I downloaded a Snorlax alarm app.", "It plays the Poké Flute at 6 AM. I sleep right through it."],
-  ["Careful out there, trainer.", "Team Rocket runs phishing scams now. 'FREE MASTER BALL — CLICK HERE.' Don't click it!"],
-  ["My phone says I average 9 hours of screen time.", "{player}, you walk around CATCHING things. Touch grass legend."],
-  ["I'm farming likes with cute Pikachu pics.", "The cheeks do all the work, honestly."],
-  ["The Pewter Museum has an exhibit on 'life before phones.'", "Apparently people stared at CAVES instead. Wild."],
+  ["My phone says 9 hours of screen time today.", "{player}, you walk around CATCHING things. Touch grass legend."],
 ] as [string, string][];
-const CIV_LOOKS = [
+// looks 0-3 stroll about their square; the last is welded to their feed
+const CIV_LOOKS: { shirt: string; pants: string; hair: string; hat?: string; phone?: boolean }[] = [
+  { shirt: "#ff8a65", pants: "#5d4037", hair: "#6d4c41" },
+  { shirt: "#4db6ac", pants: "#263238", hair: "#3e2723" },
+  { shirt: "#f06292", pants: "#4a148c", hair: "#8d5524", hat: "#f8bbd0" },
+  { shirt: "#aed581", pants: "#33691e", hair: "#5a4632" },
   { shirt: "#607d8b", pants: "#37474f", hair: "#212121", phone: true },
-  { shirt: "#ff8a65", pants: "#5d4037", hair: "#6d4c41", phone: true },
-  { shirt: "#9575cd", pants: "#311b92", hair: "#4e342e", phone: true },
-  { shirt: "#4db6ac", pants: "#263238", hair: "#3e2723", phone: true },
-  { shirt: "#f06292", pants: "#4a148c", hair: "#8d5524", phone: true },
-  { shirt: "#aed581", pants: "#33691e", hair: "#5a4632", phone: true },
 ];
-const CIV_NAMES = ["Phone Fan", "Streamer", "Doomscroller", "Influencer", "Tech Bro", "Feed Zombie", "Subscriber", "Lurker"];
-// two scrollers per town square, offset from the town center
+const CIV_NAMES = ["Gentleman", "Lass", "Picnicker", "Old Timer", "Doomscroller"];
+// two townsfolk per town square, offset from the town center (design space,
+// expanded to world space at module load like TRAINERS)
 const CIV_SPOTS = [
   { town: "pallet", x: -88, z: 124 }, { town: "pallet", x: -101, z: 138 },
   { town: "viridian", x: -88, z: 24 }, { town: "viridian", x: -103, z: 36 },
@@ -178,6 +185,7 @@ const CIV_SPOTS = [
   { town: "fuchsia", x: -23, z: 181 }, { town: "fuchsia", x: -37, z: 169 },
   { town: "cinnabar", x: -89, z: 257 }, { town: "cinnabar", x: -101, z: 267 },
 ];
+for (const c of CIV_SPOTS) { c.x *= MAP_SCALE; c.z *= MAP_SCALE; }
 
 // ---------------------------------------------- Gen 1 stats / growth / XP
 // Gen 1 DVs: 0-15 per stat, HP DV derived from the parity bits of the others.
@@ -476,6 +484,13 @@ class MonEntity {
   pos() { return this.group.position.clone().add(V3(0, this.halfH, 0)); }
   feet() { return this.group.position.clone(); }
   eye() { return this.group.position.clone().add(V3(0, this.halfH * 1.72, 0)); }
+  // possession camera anchor: tiny species keep their flavor but you still
+  // get a vantage you can actually fight from (no grass-blade cam)
+  povEye() {
+    const e = this.eye();
+    e.y = Math.max(e.y, this.group.position.y + 1.0);
+    return e;
+  }
   tintFlash(col, dur) { this.tintC.set(col); this.tintT = this.tintDur = dur; }
   shake(amp, dur) { this.shakeAmp = amp; this.shakeT = dur; }
   pulse(a) { this.pulseT = 0.45; this.pulseA = a; }
@@ -499,6 +514,14 @@ class MonEntity {
   }
   lookToward(p: THREE.Vector3) {
     this.faceTo = (this.faceTo || V3()).copy(p);
+  }
+  // flush base -> group immediately; pos() must be truthful the same frame
+  // (habitat placement moves base in the constructor, and a throw can target
+  // the mon before its first update tick)
+  syncNow() {
+    this.group.position.copy(this.base);
+    this.prevX = this.group.position.x;
+    this.prevZ = this.group.position.z;
   }
   knock(dir, amt) {
     this.base.addScaledVector(dir, amt);
@@ -579,7 +602,6 @@ class WildMon extends MonEntity {
   aggroT: number;
   legend: boolean;
   fleeT = 0;
-  berryBonus = 1;          // razz berry catch multiplier
   ringSeed = Math.random() * 9;
   // ---- habitat (v10): birds fly, fish swim, larvae perch, legends hold court
   habitat: Habitat;
@@ -592,6 +614,11 @@ class WildMon extends MonEntity {
   bobP = rnd(9);
   hopping = false;         // mid tree-hop animation
   sessile = false;         // cocoons: hardened on, going nowhere
+  // ---- ambient life (v11): left alone, wilds graze, nap and drink
+  ambient: "" | "graze" | "nap" | "drink" = "";
+  ambientT = 0;            // time left in the current bit
+  ambientFxT = 0;          // throttles nibble pulses / Zzz / ripples
+  cryT = rnd(30, 8);       // seconds until this one calls out across the field
 
   constructor(game, mon, pos, opts: any = {}) {
     super(game, mon, pos);
@@ -610,6 +637,7 @@ class WildMon extends MonEntity {
     this.sessile = MON3D_SPECS[mon.sp]?.arch === "cocoon";   // Metapod hardens, Metapod stays
     this.placeForHabitat(opts);
     this.snapGround();
+    this.syncNow();   // habitat placement moved base; pos() must agree this frame
   }
   // nudge the spawn point into this species' element: water mons into the
   // nearest pool, perchers into a canopy, grass dwellers toward tall grass,
@@ -623,7 +651,9 @@ class WildMon extends MonEntity {
       return;
     }
     if (this.habitat === "water") {
-      if (!this.isWater) {
+      // even species pre-flagged isWater can roll a spawn point on dry land —
+      // what matters is whether the water HERE is deep enough to swim in
+      if (w.height(this.base.x, this.base.z) >= w.waterY - 0.55) {
         // find swimmable water near the spawn point
         let best: THREE.Vector3 | null = null;
         for (let r = 4; r <= 22 && !best; r += 4.5) {
@@ -634,8 +664,8 @@ class WildMon extends MonEntity {
           }
         }
         if (best) { this.base.x = best.x; this.base.z = best.z; this.isWater = true; }
-        else this.habitat = "ground";   // a fish out of water settles for the shore
-      }
+        else { this.habitat = "ground"; this.isWater = false; }   // a fish out of water settles for the shore
+      } else this.isWater = true;
       this.home = this.base.clone();
     } else if (this.habitat === "sky") {
       this.air = true;
@@ -738,11 +768,52 @@ class WildMon extends MonEntity {
     if (this.air) this.alt += (this.altT - this.alt) * Math.min(1, dt * 1.1);
     const g = this.game, p = g.playerPos;
     const d = Math.hypot(p.x - this.base.x, p.z - this.base.z);
-    if (this.engaged) { this.thinkT = 1; return; }
+    if (this.engaged) { this.thinkT = 1; this.ambient = ""; return; }
     if (this.hopping) return;                            // mid-flutter: let the arc play
     this.life -= dt;
     // out-of-battle regen
     this.mon.hp = Math.min(this.mon.maxhp, this.mon.hp + this.mon.maxhp * dt * 0.005);
+    // ambient idle cries — the fields sound alive; closer carries louder,
+    // sleepers stay quiet, and nobody calls out mid-flee
+    this.cryT -= dt;
+    if (this.cryT <= 0) {
+      this.cryT = rnd(46, 22);
+      if (d < 42 && this.ambient !== "nap" && this.state !== "flee" && !g.battle) {
+        g.audio.cry(this.mon.sp, this.species.height, clamp(1 - d / 48, 0.12, 0.5));
+        this.pulse(1.06);                                // a visible little call
+      }
+    }
+    // ---- ambient bits: play out until they finish or you get too close
+    if (this.ambient) {
+      this.ambientT -= dt;
+      const tooClose = d < (this.ambient === "nap" ? 6.5 : 9);
+      if (this.ambientT <= 0 || tooClose) {
+        if (tooClose && this.ambient === "nap") {
+          this.pulse(1.18);                              // startled awake!
+          this.game.ui.floatAt(this.pos(), "!", "status");
+        }
+        this.ambient = "";
+        this.thinkT = rnd(1.2, 0.5);
+      } else {
+        this.ambientFxT -= dt;
+        if (this.ambientFxT <= 0) {
+          const fx = this.game.fx;
+          if (this.ambient === "graze") {
+            this.ambientFxT = rnd(1.6, 1.0);
+            this.pulse(0.9);                             // head-down nibble
+            fx.burst(this.base.clone(), { count: 3, col: "#7ed321", speed: 0.8, size: 0.12, life: 0.4, g: -1 });
+          } else if (this.ambient === "nap") {
+            this.ambientFxT = 1.7;
+            fx.conditionTick(this, "slp");               // drifting Zzz
+          } else {
+            this.ambientFxT = rnd(1.6, 1.1);
+            this.pulse(0.93);                            // lowered muzzle, lapping
+            fx.burst(this.pos(), { count: 4, col: "#9fd2ff", speed: 0.9, size: 0.12, life: 0.4, g: -2 });
+          }
+        }
+        return;                                          // busy: no wandering, no watching
+      }
+    }
     const temper = this.species.temper;
     if (temper === "skittish" && d < 9 && this.state !== "flee" && !this.sessile) {
       this.state = "flee"; this.fleeT = 2.4;
@@ -763,6 +834,21 @@ class WildMon extends MonEntity {
       } else if (this.perched) {
         // branch life: mostly stillness, sometimes a flutter to the next tree
         if (Math.random() < 0.22) this.hopTree();
+        this.state = "idle";
+      } else if (!this.air && !this.legend && d > 13 && Math.random() < 0.34) {
+        // far from prying eyes, wilds settle into little routines:
+        // nap under the moon, lap at the shoreline, graze the meadow
+        let nearWater = false;
+        if (!this.isWater) {
+          for (let a = 0; a < 8 && !nearWater; a++) {
+            const ang = (a / 8) * Math.PI * 2;
+            if (g.world.height(this.base.x + Math.cos(ang) * 3.4, this.base.z + Math.sin(ang) * 3.4) < g.world.waterY - 0.25) nearWater = true;
+          }
+        }
+        if (!this.isWater && g.world.isNight() && Math.random() < 0.55) { this.ambient = "nap"; this.ambientT = rnd(14, 8); }
+        else if (nearWater && Math.random() < 0.6) { this.ambient = "drink"; this.ambientT = rnd(7, 4); }
+        else if (!this.isWater) { this.ambient = "graze"; this.ambientT = rnd(7, 4); }
+        this.ambientFxT = 0.4;
         this.state = "idle";
       } else if (Math.random() < (this.air ? 0.8 : 0.55)) {
         const wanderR = this.legend ? 7 : this.air ? 15 : 9;
@@ -959,17 +1045,28 @@ class TrainerNPC {
   dispose() { this.game.scene.remove(this.group); }
 }
 
-// ------------------------------------------------- civilians (modern Kanto)
-// Townsfolk welded to their phones: bowed head, glowing screen, thumb going.
-// Purely ambient — chat with E for a rotating feed of modern-day nonsense.
+// ------------------------------------------------------- townsfolk ambient
+// Most folks stroll their town square — picking a spot, ambling over with
+// swinging arms, pausing to watch you pass. The odd Doomscroller stands
+// rooted, thumb going, screen glowing. Chat with E either way.
 class CivilianNPC {
   game: Game;
   pos: THREE.Vector3;
+  home: THREE.Vector3;
   group: THREE.Group;
   name: string;
   lines: [string, string];
+  phone: boolean;
   t: number;
-  lineIdx = 0;
+  // strolling brain
+  tgt: THREE.Vector3 | null = null;
+  pauseT = rnd(6, 1);
+  walkP = 0;            // limb-swing phase, advances only while walking
+  swing = 0;            // limb-swing amplitude envelope (eases in/out)
+  chatT = 0;            // freeze briefly after being talked to
+  private poolStart: number;
+  private poolLen: number;
+  private poolIdx: number;
   constructor(game, spot, i: number) {
     this.game = game;
     // town squares are crowded — slide out of any building we spawned inside
@@ -980,17 +1077,29 @@ class CivilianNPC {
     }
     p.y = game.world.height(p.x, p.z);
     this.pos = p;
-    this.group = buildPerson(CIV_LOOKS[i % CIV_LOOKS.length]);
+    this.home = p.clone();
+    const look = CIV_LOOKS[i % CIV_LOOKS.length];
+    this.phone = !!look.phone;
+    this.group = buildPerson(look);
     this.group.position.copy(this.pos);
     this.group.rotation.y = rnd(Math.PI * 2);
     this.name = CIV_NAMES[i % CIV_NAMES.length];
-    this.lines = CIV_LINES[i % CIV_LINES.length];
+    // strollers gossip about routes and gym leaders; scrollers post about it
+    this.poolStart = this.phone ? 10 : 0;
+    this.poolLen = this.phone ? CIV_LINES.length - 10 : 10;
+    this.poolIdx = i % this.poolLen;
+    this.lines = CIV_LINES[this.poolStart + this.poolIdx];
     this.t = rnd(9);
     game.scene.add(this.group);
   }
-  // they shuffle in place and flick the screen — never looking up
   update(dt) {
     this.t += dt;
+    this.chatT -= dt;
+    if (this.phone) return this.updateScroller(dt);
+    this.updateStroller(dt);
+  }
+  // rooted in place, thumb flicking — never looking up
+  updateScroller(dt) {
     const ph = this.group.userData.phone as THREE.Group | undefined;
     if (ph) {
       ph.position.y = 1.16 + Math.sin(this.t * 1.7) * 0.012;
@@ -1002,12 +1111,72 @@ class CivilianNPC {
     }
     this.group.position.y = this.pos.y + Math.abs(Math.sin(this.t * 0.9)) * 0.012; // restless feet
   }
+  // amble between spots near home, arms swinging; pause and face passers-by
+  updateStroller(dt) {
+    const w = this.game.world;
+    const pd = this.game.playerPos.distanceTo(this.pos);
+    const legL = this.group.userData.legL as THREE.Mesh;
+    const legR = this.group.userData.legR as THREE.Mesh;
+    const armL = this.group.userData.armL as THREE.Mesh;
+    const armR = this.group.userData.armR as THREE.Mesh;
+    let walking = false;
+    if (!this.tgt) {
+      this.pauseT -= dt;
+      // idle: settle limbs, breathe, and turn to watch a passing trainer
+      if (pd < 6 && this.chatT <= 0) {
+        const want = Math.atan2(this.game.playerPos.x - this.pos.x, this.game.playerPos.z - this.pos.z);
+        this.turnToward(want, dt * 5);
+      }
+      if (this.pauseT <= 0 && this.chatT <= 0) {
+        // pick a new spot in the square: walkable, dry, not inside a wall
+        for (let k = 0; k < 8; k++) {
+          const a = rnd(Math.PI * 2), r = rnd(11, 3);
+          const c = V3(this.home.x + Math.cos(a) * r, 0, this.home.z + Math.sin(a) * r);
+          const h = w.height(c.x, c.z);
+          if (h < w.waterY + 0.1 || w.insideBuilding(c)) continue;
+          c.y = h;
+          this.tgt = c;
+          break;
+        }
+        this.pauseT = rnd(8, 3);
+      }
+    } else {
+      const dir = this.tgt.clone().sub(this.pos).setY(0);
+      const d = dir.length();
+      if (d < 0.35) this.tgt = null;
+      else {
+        dir.normalize();
+        const speed = 1.25;
+        this.pos.addScaledVector(dir, speed * dt);
+        w.collide(this.pos, 0.4);
+        this.pos.y = w.height(this.pos.x, this.pos.z);
+        this.turnToward(Math.atan2(dir.x, dir.z), dt * 6);
+        this.walkP += dt * 7;
+        walking = true;
+      }
+    }
+    // limb swing eases in as they set off and out as they stop
+    this.swing += ((walking ? 1 : 0) - this.swing) * Math.min(1, dt * 6);
+    const sw = Math.sin(this.walkP) * 0.55 * this.swing;
+    legL.rotation.x = sw;
+    legR.rotation.x = -sw;
+    armL.rotation.x = -sw * 0.8;
+    armR.rotation.x = sw * 0.8;
+    this.group.position.copy(this.pos);
+    this.group.position.y += Math.abs(Math.sin(this.walkP)) * 0.045 * this.swing;
+  }
+  turnToward(want: number, k: number) {
+    let dy = want - this.group.rotation.y;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    this.group.rotation.y += dy * Math.min(1, k);
+  }
   nextLines() {
-    // every chat rotates them to a fresh take from the pool
-    const all = CIV_LINES;
-    this.lineIdx = (this.lineIdx + 1) % all.length;
+    // every chat rotates them to a fresh take from their own pool
     const cur = this.lines;
-    this.lines = all[(all.indexOf(cur) + 1 + Math.floor(rnd(3))) % all.length];
+    this.poolIdx = (this.poolIdx + 1 + Math.floor(rnd(2))) % this.poolLen;
+    this.lines = CIV_LINES[this.poolStart + this.poolIdx];
+    this.chatT = 6;            // stand with their guest a moment
     return cur;
   }
   dispose() { this.game.scene.remove(this.group); }
@@ -1073,6 +1242,9 @@ class Battle {
   lastMoveIdx = 0;
   projectiles: BattleProj[] = [];
   hintT = 0;                            // throttle "too far" style nags
+  // input buffer: a move pressed just before it's ready fires the moment it
+  // is — mashing feels responsive instead of eating the press
+  buffered: { idx: number; t: number } | null = null;
   private brain = { strafe: 1, strafeT: 0, dodgeReact: 0, pauseT: 0, skillCd: 0 };
   // v8: battle styles. classic = true turn-based RBY; arena = real-time
   // cooldowns (the balanced middle); fp = first-person possession, where
@@ -1201,11 +1373,11 @@ class Battle {
     return clamp(base / spd, 0.7, 9);
   }
 
-  // Q — command your Pokémon to dodge the incoming attack (anime rules:
+  // Space — command your Pokémon to dodge the incoming attack (anime rules:
   // works best on fast Pokémon, needs to be timed during the wind-up).
   tryDodge() {
     if (this.style === "classic") return;                  // RBY rules: no dodge command
-    if (this.possessed) { this.possessDash(); return; }   // possessed: Q IS the dash
+    if (this.possessed) { this.possessDash(); return; }   // possessed: Space IS the dash
     if (this.over || this.dodgeCd > 0 || this.allyEnt.dead) return;
     const toEnemy = this.enemyEnt.pos().clone().sub(this.allyEnt.pos());
     const side = V3(-toEnemy.z, 0, toEnemy.x).normalize().multiplyScalar(Math.random() < 0.5 ? 1 : -1);
@@ -1213,10 +1385,10 @@ class Battle {
     this.game.audio.play("dodge");
     if (this.incoming && this.incoming.t > 0) {
       this.dodging = true;
-      this.dodgeCd = 5;
+      this.dodgeCd = 3.2;
       this.game.ui.floatAt(this.allyEnt.pos(), `${monName(this.allyMon)}, dodge it!`, "eff");
     } else {
-      this.dodgeCd = 2; // wasted hop
+      this.dodgeCd = 1.2; // wasted hop
     }
   }
 
@@ -1249,7 +1421,7 @@ class Battle {
     if (on) {
       g.audio.play("counter");
       this.allyEnt.forceYaw = g.playerYaw + Math.PI;   // face the camera's way from frame one
-      g.ui.toast(`You ARE ${monName(this.allyMon)} now! WASD move · Space dash · click/1-4 attack · T back`, "good");
+      g.ui.toast(`You ARE ${monName(this.allyMon)} now! WASD move · Space dash · click or Q/E/R/F attack · T back`, "good");
       g.fx.ringAt(this.allyEnt.feet().add(V3(0, 0.15, 0)), { col: "#9fe8ff", r0: 0.4, r1: 2.6, dur: 0.5 });
     } else {
       g.audio.play("ui");
@@ -1299,7 +1471,7 @@ class Battle {
       e.snapGround();
     }
   }
-  // Space/Q — a real dodge: a burst of movement, distance from the Speed stat,
+  // Space — a real dodge: a burst of movement, distance from the Speed stat,
   // flavored by what this species IS (ghosts blink, moles burrow, birds glide).
   possessDash() {
     const e = this.allyEnt;
@@ -1426,7 +1598,7 @@ class Battle {
   }
   projSpeed(move: Move) {
     const k = this.kindOf(move);
-    return k === "beam" || k === "bolt" ? 30 : k === "stream" ? 24 : k === "lob" ? 11 : k === "cone" ? 13 : 17;
+    return k === "beam" || k === "bolt" ? 30 : k === "stream" ? 24 : k === "lob" ? 13 : k === "cone" ? 14 : 18;
   }
   fireProjectile(side, move) {
     const fx = this.game.fx, d = fx.descFor(move);
@@ -1434,10 +1606,21 @@ class Battle {
     let from: THREE.Vector3;
     let dir: THREE.Vector3;
     if (side === "ally" && this.possessed) {
-      // your aim is the accuracy now — true to the crosshair, so launch from
-      // the eye line, not the belly
+      // your aim is the accuracy now — launch from the camera's anchor so
+      // shots fly true to the crosshair even on tiny species
       dir = this.game.camera.getWorldDirection(V3()).normalize();
-      from = atkEnt.eye();
+      from = atkEnt.povEye();
+      // gentle aim assist: a shot already ON the target (within ~8°) bends
+      // toward where it's strafing to — forgiveness, not an aimbot
+      const lead = defEnt.pos();
+      const t = lead.distanceTo(from) / this.projSpeed(move);
+      lead.x += defEnt.velX * t * 0.85;
+      lead.z += defEnt.velZ * t * 0.85;
+      const want = lead.sub(from).normalize();
+      const cos = dir.dot(want);
+      if (cos > 0.99 && !defEnt.dead && defEnt.phasedT <= 0) {
+        dir.lerp(want, clamp((cos - 0.99) / 0.01, 0, 1) * 0.6).normalize();
+      }
       this.punishT = 1.1;       // committing to a shot is an opening a veteran will take
     } else {
       from = atkEnt.pos();
@@ -1626,11 +1809,7 @@ class Battle {
     const atkEnt = this.ent(side), defEnt = this.ent(this.other(side));
     const fx = this.game.fx;
     const start = atkEnt.base.clone();
-    const dirv = defEnt.base.clone().sub(start).setY(0);
-    const dist = dirv.length();
     const reach = this.meleeReach();
-    const lungeD = clamp(dist - reach * 0.45, 0, 4.4);  // close the gap, capped
-    dirv.normalize();
     this.game.audio.play("dodge");
     // the defender can read the lunge and pull its signature escape —
     // veterans react far more often than hatchlings
@@ -1642,6 +1821,11 @@ class Battle {
     // attack gets knocked clean out of them
     const intercept = side === "ally" && this.possessed && this.incoming && this.incoming.t > 0;
     fx.anim(0.2, (k) => {
+      // the lunge homes on where the target IS each frame, not a stale
+      // snapshot — strafing foes stay catchable and contact feels modern
+      const dirv = defEnt.base.clone().sub(start).setY(0);
+      const lungeD = clamp(dirv.length() - reach * 0.45, 0, 4.6);
+      dirv.normalize();
       atkEnt.base.copy(start).addScaledVector(dirv, lungeD * k);
       this.game.world.collide(atkEnt.base, atkEnt.size * 0.4);
       atkEnt.snapGround();
@@ -1864,6 +2048,16 @@ class Battle {
       }
     }
     if (this.over) return;
+    // banked press from the input buffer fires the instant it's legal
+    if (this.buffered) {
+      this.buffered.t -= dt;
+      if (this.buffered.t <= 0) this.buffered = null;
+      else if (this.lock.ally <= 0 && this.cds.ally[this.buffered.idx] <= 0 && !this.allyEnt.dead) {
+        const idx = this.buffered.idx;
+        this.buffered = null;
+        this.useMove("ally", idx);
+      }
+    }
     if (this.style !== "classic") {
       // enemy AI — slower thinkers hesitate between actions; veterans punish
       // your recovery windows by thinking double-time
@@ -2122,7 +2316,13 @@ class Battle {
     }
     const move = MOVES[moveId];
     const c = this.conds[side];
-    if (!o.classic && (this.lock[side] > 0 || this.cds[side][idx] > 0)) return;
+    if (!o.classic && (this.lock[side] > 0 || this.cds[side][idx] > 0)) {
+      // almost ready? bank the press instead of dropping it
+      const wait = Math.max(this.lock[side], this.cds[side][idx]);
+      if (side === "ally" && wait <= 0.5) this.buffered = { idx, t: wait + 0.25 };
+      return;
+    }
+    if (side === "ally" && this.buffered?.idx === idx) this.buffered = null;
     if (c.slp > 0) { this.game.ui.floatAt(this.ent(side).pos(), "Fast asleep!", "status"); return; }
     if (c.frz > 0) { this.game.ui.floatAt(this.ent(side).pos(), "Frozen!", "status"); return; }
     if (c.disable > 0 && c.disabledIdx === idx) { this.game.ui.floatAt(this.ent(side).pos(), "Disabled!", "status"); return; }
@@ -2150,7 +2350,10 @@ class Battle {
     if (struggle && side === "ally") this.game.ui.floatAt(this.ent(side).pos(), "Struggle!", "status");
     if (!o.classic) {
       this.cds[side][idx] = this.cdFor(side, move);
-      this.lock[side] = 0.5 + (move.tags?.charge ? 0.55 : 0);
+      // your four moves run independent clocks — weave Q/E/R/F freely; only
+      // real commitments (charge-ups, Hyper Beam recharge) lock the body. The
+      // enemy keeps a half-second action pace so its AI reads as deliberate.
+      this.lock[side] = (side === "ally" ? 0.15 : 0.5) + (move.tags?.charge ? 0.55 : 0);
       if (move.tags?.recharge) this.lock[side] += 1.2;
     }
     const atkEnt = this.ent(side), defEnt = this.ent(this.other(side));
@@ -2163,7 +2366,7 @@ class Battle {
       if (side === "enemy") this.lastEnemyMove = move.id;
       return;
     }
-    // telegraph the enemy's attack so the player can call a dodge (Q) —
+    // telegraph the enemy's attack so the player can call a dodge (Space) —
     // classic has no dodge command, the turns speak for themselves
     if (side === "enemy" && move.power > 0 && !o.classic) {
       const windup = (move.tags?.charge ? 0.55 : 0) + 0.5;
@@ -2364,6 +2567,12 @@ class Battle {
     def.hp = Math.max(0, def.hp - dmg);
     this.bideDmg[other] += dmg;
     setTimeout(() => (this.bideDmg[other] = Math.max(0, this.bideDmg[other] - dmg)), 3000);
+    // first-person feedback: a crosshair hitmarker for landing yours, a red
+    // edge flash + camera kick for eating one
+    if (this.possessed) {
+      if (side === "ally") ui.hitmarker(crit || eff > 1);
+      else if (other === "ally") { ui.hurtFlash(); fx.shakeAmt = Math.max(fx.shakeAmt, 0.1); }
+    }
     ui.floatAt(defEnt.pos(), `-${dmg}`, crit ? "crit" : "dmg");
     if (crit) ui.floatAt(defEnt.pos().add(V3(0, 0.6, 0)), "Critical hit!", "crit");
     if (eff > 1) ui.floatAt(defEnt.pos().add(V3(0, 0.9, 0)), "It's super effective!", "eff");
@@ -2558,6 +2767,7 @@ class Battle {
       return;
     }
     this.switchLock = 2;
+    this.buffered = null;               // stale presses don't carry to the new mon
     const oldEnt = this.allyEnt;
     if (!oldEnt.dead) oldEnt.fadeOut();
     this.game.setLead(partyIdx);
@@ -2650,7 +2860,7 @@ class Battle {
         g.state.badges.push(t.def.gym);
         g.audio.play("badge");
         g.ui.toast(`You received the ${BADGE_META[t.def.gym].name.toUpperCase()}!`, "good");
-        g.ui.toast("Your win is already trending on PokéGram.", "");
+        g.ui.toast("Word of your win is spreading across Kanto.", "");
         if (g.state.badges.length >= 8) {
           g.world.openCaveGate();
           g.ui.toast("The barrier sealing Cerulean Cave has been lifted...", "");
@@ -2684,12 +2894,11 @@ interface ThrownBall {
   mesh: THREE.Group;
   p: THREE.Vector3;
   v: THREE.Vector3;
-  curve: number;          // signed curve strength (Magnus-style)
   type: string;           // ball item key
   t: number;
   bounced: boolean;
   resting: number;
-  aimed: boolean;         // thrown from aim mode (rings count)
+  aimed: boolean;         // thrown from aim mode (steadier arm, small catch bonus)
   assist?: WildMon | null; // quick-tap lobs steer toward their target
   dead?: boolean;
 }
@@ -2734,7 +2943,6 @@ export class Game {
   timeScale = 1;                       // bullet time while aiming
   aim: { charge: number; t: number } | null = null;
   thrown: ThrownBall[] = [];
-  ringPhase = 0;
   petCd = 0;
   fishing: FishingState | null = null;
   rocketT = 200;                        // seconds until Team Rocket tries an ambush
@@ -2770,7 +2978,7 @@ export class Game {
 
     this.state = this.load() || {
       v: SAVE_VERSION, started: false, party: [], boxes: [], money: 600,
-      items: { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, razzberry: 2, repel: 0, escaperope: 1, lure: 0, nugget: 0 },
+      items: { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, nugget: 0 },
       seen: [], caught: [], tl: 1, txp: 0, beaten: {}, badges: [],
       settings: { vol: 70, sens: 100, ai: "adaptive", style: "arena" }, time: 0.18, spotsFound: [],
       cheats: { god: false, ohko: false, catchall: false, infpp: false, speed: false },
@@ -2843,11 +3051,19 @@ export class Game {
         s.lastCenter = null;
         s.spotsFound = [];
       }
+      if ((s.v || 1) < 5) {
+        // v5 doubled the map: every stored position scales with it
+        if (Array.isArray(s.pos)) { s.pos = [s.pos[0] * MAP_SCALE, s.pos[1], s.pos[2] * MAP_SCALE]; }
+        if (Array.isArray(s.lastCenter)) { s.lastCenter = [s.lastCenter[0] * MAP_SCALE, s.lastCenter[1] * MAP_SCALE]; }
+      }
       s.v = SAVE_VERSION;
     }
     // v3 additions
     for (const m of [...s.party, ...(s.boxes || [])]) if (m.hap === undefined) m.hap = 70;
-    s.items = Object.assign({ oranberry: 0, razzberry: 0, repel: 0, escaperope: 0, lure: 0, nugget: 0 }, s.items);
+    s.items = Object.assign({ oranberry: 0, repel: 0, escaperope: 0, lure: 0, nugget: 0 }, s.items);
+    // razz berries retired with the catching rework — swap any held for orans
+    if (s.items.razzberry) s.items.oranberry += s.items.razzberry;
+    delete s.items.razzberry;
     if (s.starter === undefined) s.starter = null;
     if (!Array.isArray(s.hof)) s.hof = [];
     if (s.repelT === undefined) s.repelT = 0;
@@ -2965,16 +3181,16 @@ export class Game {
     this.audio.cry(33, DEX[33].height);
     this.fx.ringAt(rig.group.position.clone().add(V3(0, 0.2, 0)), { col: "#9fe8ff", r0: 0.4, r1: 2.2, dur: 0.5 });
     await ui.dialog("Prof. Oak", [
-      "These days, most folks only ever meet POKÉMON through a screen — doomscrolling PokéGram, arguing in Chansey forums, watching Gym battles at 2x speed...",
-      "But myself? I study POKÉMON the old way. Face to face, as friends and partners!",
-      "And you — you look like someone who could use less feed and more tall grass. First, what is your name?",
+      "For some people, POKÉMON are pets. Others use them for fights. Myself... I study POKÉMON as a profession — face to face, as friends and partners!",
+      "Plenty of folks these days only ever meet them through a screen. A shame! Kanto is best seen in person.",
+      "But first, tell me a little about yourself. What is your name?",
     ]);
     const name = await ui.askName("What is your name?", ["RED", "ASH", "LEAF", "SATOSHI"]);
     this.state.name = name;
     await ui.dialog("Prof. Oak", [
       `Right! So your name is ${name}!`,
       "This is my grandson. He's been your rival since you were both babies.",
-      "...Erm, what was his name again? He renames his @handle every other week...",
+      "...Erm, what was his name again? My memory isn't what it used to be...",
     ]);
     const rival = await ui.askName("What was his name again?", ["BLUE", "GARY", "SHIGERU"]);
     this.state.rival = rival;
@@ -2983,7 +3199,6 @@ export class Game {
       `That's right! I remember now! His name is ${rival}!`,
       `${name}! Your very own POKÉMON legend is about to unfold!`,
       "A world of dreams and adventures with POKÉMON awaits! Let's go!",
-      "(One favor, though — log off now and then. The tall grass has no comment section.)",
     ]);
     this.clearShowcase();
     this.introCam = null;
@@ -2997,21 +3212,21 @@ export class Game {
     this.showcase = null;
   }
   // Oak hands over the Pokédex; the rival grabs his counter-pick and jumps you
-  // right there — the faithful first battle, reframed as content creation.
+  // right there — the faithful first battle.
   async postStarter() {
     this.cutscene = true;
     const sp = this.state.starter;
     await this.ui.dialog("Prof. Oak", [
       `${DEX[sp].name}, eh? A fine choice, {player}!`,
-      "Take this too — your very own POKÉDEX! Latest model: camera, town map, all 151 entries... and PokéGram pre-installed, I'm afraid.",
-      "Press TAB for science. Press G to doomscroll. I trust you to know the difference!",
+      "Take this too — your very own POKÉDEX! It records data on every Pokémon you meet. A complete guide to all 151!",
+      "To make it complete, you must meet each Pokémon face to face. That part, no gadget can do for you!",
     ]);
     this.cutscene = false;
     // the rival bursts in for the lab battle
     const npc = this.spawnRival(0);
     await this.ui.dialog(`Rival ${this.state.rival || "Blue"}`, [
       "Hold on, {player}! Gramps gave ME a POKÉMON too — the one that beats yours, obviously.",
-      "My unboxing stream starts in five minutes. Let's make it CONTENT!",
+      "Let's check out our new partners... right here, right now!",
     ]);
     if (!this.battle && !this.ui.modalOpen) this.startTrainerBattle(npc);
     else npc.engaging = false;
@@ -3021,7 +3236,7 @@ export class Game {
 
   // ------------------------------------------------- story: the rival (v9)
   // He shows up at milestones with the counter-starter line, like the old
-  // days — except now every battle doubles as material for his channel.
+  // days. He DOES have a channel — he just brings it up less than he used to.
   rivalBaseId() { return (COUNTER_STARTER[this.state.starter] || 9) - 2; }
   rivalDefFor(stage: number) {
     const base = this.rivalBaseId();
@@ -3030,25 +3245,25 @@ export class Game {
     if (stage === 0) return {
       id: "rival0", rival: true, name: `Rival ${r}`, look, party: [base], lvs: [5], pay: 30, payMul: 1.2,
       dlg: [
-        "Okay chat, watch me cook!",
-        "WHAT? My first L, on stream?! ...Smile, {player}. You're the thumbnail now.",
+        "Come on! I'll take it easy on you... maybe!",
+        "WHAT? Are you serious? I picked the strong one! ...Don't get used to it, {player}.",
         "I've studied every frame of that loss. Rematch!",
       ],
     };
     if (stage === 1) return {
       id: "rival2", rival: true, name: `Rival ${r}`, look, party: [17, 63, base + 1], lvs: [17, 16, 18], pay: 40, payMul: 1.5,
       dlg: [
-        "Yo {player}! Two badges already? My followers want to see me dunk on you — say hi to the camera!",
-        "Unsubscribe... UNSUBSCRIBE!! How are you still ahead of me?!",
-        "The algorithm demands a rematch, {player}!",
+        "Yo {player}! Two badges already? Hah — I've got two AND a fan club. Watch and learn!",
+        "Tch... how are you still ahead of me?!",
+        "I've been itching for a rematch, {player}!",
       ],
     };
     return {
       id: "rival5", rival: true, name: `Rival ${r}`, look, party: [18, 64, 58, base + 2], lvs: [33, 34, 35, 37], pay: 60, payMul: 1.8,
       dlg: [
-        "{player}. Five badges. My engagement is down 12% and it's YOUR fault. Going LIVE!",
-        "...Deleting that VOD. The feed never has to know. But I'll know, {player}. I'll know.",
-        "No more streams. Just training. Show me what the grind looks like, {player}!",
+        "{player}. Five badges each. Everyone keeps asking if you're better than me. Time to settle it!",
+        "...You're the real deal, {player}. Fine. FINE. Back to training.",
+        "No distractions anymore. Just Pokémon. Show me what the grind looks like, {player}!",
       ],
     };
   }
@@ -3199,7 +3414,7 @@ export class Game {
     if (this.wilds.length >= 26 || !this.state.started) return;
     const a = rnd(Math.PI * 2), d = rnd(62, 26);
     const x = this.playerPos.x + Math.cos(a) * d, z = this.playerPos.z + Math.sin(a) * d;
-    if (Math.abs(x) > 284 || Math.abs(z) > 284) return;
+    if (Math.abs(x) > WORLD_R - 16 || Math.abs(z) > WORLD_R - 16) return;
     const zone = this.world.zoneAt(x, z);
     const zdef = SPAWNS[zone];
     if (!zdef) return;
@@ -3231,7 +3446,7 @@ export class Game {
       if (sp === 151 && !this.world.isNight()) continue;
       const p = this.world.spots[spot];
       const d = Math.hypot(this.playerPos.x - p.x, this.playerPos.z - p.z);
-      if (d > 130 || d < 12) continue;
+      if (d > 65 * MAP_SCALE || d < 12) continue;
       if (Math.random() < (sp === 151 ? 0.05 : 0.12)) {
         const wm = new WildMon(this, makeMon(sp, LEGEND_LV[sp]), p.clone());
         this.wilds.push(wm);
@@ -3284,10 +3499,10 @@ export class Game {
     if (best) this.markSeen(best.mon.sp);
   }
 
-  // ------------------------------------------- Catching 2.0: aim & throws
-  // Quick tap = assisted lob at your target. Hold = aim mode: time dilates,
-  // a trajectory arc appears, the charge meter rises, and the timing ring
-  // shrinks over the target. Mouse flicks at release curve the ball.
+  // ----------------------------------------------------- catching: throws
+  // Quick tap = assisted lob at your target. Hold = aim mode: time dilates
+  // and a trajectory arc appears; release to throw. Aimed throws land a
+  // steadier hit and a small catch bonus. That's it — no timing minigames.
   battleStyle(): "classic" | "arena" | "fp" {
     const s = this.state.settings?.style;
     return s === "classic" || s === "fp" ? s : "arena";
@@ -3321,7 +3536,6 @@ export class Game {
     if (this.canAimWhilePossessed()) this.battle.autoEject();
     if (!this.canThrowNow()) return false;
     this.aim = { charge: 0.35, t: 0 };
-    this.ringPhase = 0;
     this.audio.play("slowmo");
     return true;
   }
@@ -3329,7 +3543,6 @@ export class Game {
     if (!this.aim) return;
     this.aim = null;
     this.fx.updateAimArc(null);
-    this.fx.setAimRing(null);
     this.audio.play("slowmoEnd");
   }
   // simulate the launch the same way updateThrow integrates it
@@ -3354,14 +3567,13 @@ export class Game {
     }
     return pts;
   }
-  releaseAim(curveInput = 0) {
+  releaseAim() {
     if (!this.aim) return;
     const v = this.launchVelocity();
-    const curve = clamp(curveInput * 2.6, -7, 7);
     // a soft magnet toward your locked target — aiming is the skill, the last
     // half-meter is the trainer's arm
     const assist = this.target instanceof WildMon ? this.target : null;
-    this.launchBall(v, curve, true, assist);
+    this.launchBall(v, true, assist);
     this.cancelAim();
   }
   quickThrowAt(wild) {
@@ -3374,7 +3586,7 @@ export class Game {
     const T = clamp(from.distanceTo(to) / 15, 0.32, 0.95);
     const v = to.clone().sub(from).divideScalar(T);
     v.y = (to.y - from.y) / T + 0.5 * 20 * T;
-    this.launchBall(v, 0, false, wild);
+    this.launchBall(v, false, wild);
   }
   onClick() {
     if (this.ui.modalOpen) return;
@@ -3384,7 +3596,7 @@ export class Game {
   }
   // kept for the debug console / tests
   throwBallAt(wild) { this.quickThrowAt(wild); }
-  launchBall(v: THREE.Vector3, curve: number, aimed: boolean, assist: WildMon | null = null) {
+  launchBall(v: THREE.Vector3, aimed: boolean, assist: WildMon | null = null) {
     const ballKey = this.ballType();
     if (!ballKey) return;
     this.battle?.onBallThrown();    // classic: the throw IS your turn
@@ -3392,35 +3604,17 @@ export class Game {
     this.state.items[ballKey]--;
     this.ui.updateHUD();
     this.audio.play("throw");
-    if (Math.abs(curve) > 2) this.audio.play("curve");
     const mesh = this.fx.makeBall(ballKey);
     mesh.position.copy(this.throwOrigin());
     this.scene.add(mesh);
-    this.thrown.push({ mesh, p: mesh.position.clone(), v: v.clone(), curve, type: ballKey, t: 0, bounced: false, resting: 0, aimed, assist });
-  }
-  // ring timing tier at this instant: [multiplier, label]
-  ringTier(): [number, string | null] {
-    const ph = this.ringPhase;
-    if (ph > 0.78) return [1.45, "Excellent!"];
-    if (ph > 0.55) return [1.25, "Great!"];
-    if (ph > 0.3) return [1.1, "Nice!"];
-    return [1, null];
+    this.thrown.push({ mesh, p: mesh.position.clone(), v: v.clone(), type: ballKey, t: 0, bounced: false, resting: 0, aimed, assist });
   }
   updateThrow(dt: number, rawDt: number) {
-    // aim mode: arc preview + shrinking ring + charge
+    // aim mode: arc preview + charge
     if (this.aim) {
       this.aim.t += rawDt;
       this.aim.charge = clamp(this.aim.charge + rawDt * 0.55, 0.35, 1);
-      this.ringPhase = (this.ringPhase + rawDt * 0.62) % 1;
       this.fx.updateAimArc(this.predictArc(), `hsl(${48 + this.aim.charge * 30},100%,${55 + this.aim.charge * 12}%)`);
-      const tgt = this.target;
-      if (tgt && !tgt.dead) {
-        const m = tgt.mon, spec = DEX[m.sp];
-        const a = ((3 * m.maxhp - 2 * m.hp) * spec.catch * 1) / (3 * m.maxhp) / 255;
-        const col = a > 0.4 ? "#6bcB77" : a > 0.18 ? "#ffd93d" : "#ff6b6b";
-        const r = (1 - this.ringPhase) * tgt.halfH * 1.7 + 0.22;
-        this.fx.setAimRing(tgt.pos(), r, col);
-      } else this.fx.setAimRing(null);
       if (!this.ui.modalOpen) this.ui.updateAimHUD?.(this.aim.charge);
     }
     // physical balls in flight (substepped so fast balls can't tunnel through
@@ -3435,11 +3629,6 @@ export class Game {
       for (let s = 0; s < steps && !hit && !sank; s++) {
         if (b.resting <= 0) {
           b.v.y -= 20 * sdt;
-          if (b.curve) {
-            const side = V3(-b.v.z, 0, b.v.x).normalize();
-            b.v.addScaledVector(side, b.curve * sdt * 2.2);
-            b.curve *= Math.pow(0.55, sdt);
-          }
           // assisted lobs home in gently — the trainer's good arm, not an aimbot
           if (b.assist && !b.assist.dead && !b.assist.captureLock) {
             const to = b.assist.pos().sub(b.p);
@@ -3447,8 +3636,8 @@ export class Game {
             if (d < 7 && d > 0.01) {
               const pull = b.aimed ? 11 : 13;
               b.v.addScaledVector(to.clone().normalize(), sdt * pull);
-              // steer the horizontal velocity toward the mon so curve drift and
-              // wander can't push a well-aimed ball wide in the final meters
+              // steer the horizontal velocity toward the mon so drift can't
+              // push a well-aimed ball wide in the final meters
               const hs = Math.hypot(b.v.x, b.v.z), hd = Math.hypot(to.x, to.z);
               if (hs > 1 && hd > 0.05) {
                 const cur = Math.atan2(b.v.z, b.v.x), want = Math.atan2(to.z, to.x);
@@ -3482,7 +3671,6 @@ export class Game {
       }
       if (b.resting <= 0) {
         b.mesh.rotation.x -= dt * 14;
-        b.mesh.rotation.z += b.curve * dt * 0.8;
         if (Math.random() < dt * 30) this.fx.burst(b.p, { count: 1, col: "#fff", speed: 0.3, size: 0.16, life: 0.22, g: 0 });
       }
       b.mesh.position.copy(b.p);
@@ -3510,7 +3698,10 @@ export class Game {
         if (a && !a.dead && !a.captureLock && a.ballCooldown <= 0 && a.phasedT <= 0 && !b.bounced &&
             !(this.battle && this.battle.type === "wild" && this.battle.enemyEnt !== a)) {
           const tp = a.pos();
-          if (Math.hypot(b.p.x - tp.x, b.p.z - tp.z) < a.halfH + (b.aimed ? 1.4 : 0.9)) {
+          // ...but a ball in the dirt can't catch a bird riding a thermal:
+          // the forgiveness only applies near the mon's actual height
+          if (Math.hypot(b.p.x - tp.x, b.p.z - tp.z) < a.halfH + (b.aimed ? 1.4 : 0.9) &&
+              Math.abs(b.p.y - tp.y) < a.halfH + 2.2) {
             this.thrown.splice(i, 1);
             this.beginCapture(a, b);
             continue;
@@ -3545,22 +3736,14 @@ export class Game {
   async beginCapture(wild: WildMon, b: ThrownBall) {
     const ball = b.mesh;
     if (wild.dead) { this.fx.kill(ball); return; }
-    // throw-skill bonuses, tallied at the moment of impact
+    // one skill bonus: a deliberate, aimed throw lands truer
     let mult = 1;
-    const labels: string[] = [];
-    if (b.aimed && this.target === wild) {
-      const [m, label] = this.ringTier();
-      if (label) {
-        mult *= m;
-        labels.push(label);
-        this.audio.play(m >= 1.45 ? "ringExcellent" : m >= 1.25 ? "ringGreat" : "ringNice");
-        this.addTrainerXp(m >= 1.45 ? 10 : m >= 1.25 ? 6 : 3);
-      }
+    if (b.aimed) {
+      mult = 1.2;
+      this.ui.floatAt(wild.pos().add(V3(0, 0.8, 0)), "Nice throw!", "eff");
+      this.audio.play("ringNice");
+      this.addTrainerXp(4);
     }
-    if (Math.abs(b.curve) > 1.6) { mult *= 1.15; labels.push("Curveball!"); }
-    if (wild.berryBonus > 1) { mult *= wild.berryBonus; labels.push("Berry bonus!"); wild.berryBonus = 1; }
-    labels.forEach((l, i) => this.ui.floatAt(wild.pos().add(V3(0, 0.8 + i * 0.5, 0)), l, "eff"));
-    if (labels.length) this.ui.catchBanner?.(labels.join("  +  "));
     this.cancelAim();
     this.audio.play("ballhit");
     wild.captureLock = true;
@@ -3579,7 +3762,7 @@ export class Game {
     const a = ((3 * m.maxhp - 2 * m.hp) * spec.catch * ballBonus * statusBonus * mult) / (3 * m.maxhp);
     const p = this.state.cheats?.catchall ? 1 : clamp(a / 255, 0.01, 1);
     // critical catch: rare, scales with your Pokédex progress and throw skill
-    const critP = Math.min(0.16, this.dexCaught.size / 650 + (mult > 1.2 ? 0.05 : 0.015));
+    const critP = Math.min(0.16, this.dexCaught.size / 650 + (mult > 1 ? 0.05 : 0.015));
     const crit = !this.state.cheats?.catchall && Math.random() < critP && Math.random() < Math.max(p, 0.25);
     const caught = crit || Math.random() < p;
     if (crit) {
@@ -3627,20 +3810,6 @@ export class Game {
         else wild.engaged = false;
       }
     }
-  }
-  // B — feed a Razz Berry to the targeted wild Pokémon
-  feedBerry() {
-    const w = this.target;
-    if (!w || !(w instanceof WildMon) || w.dead) { this.ui.toast("Look at a wild Pokémon to feed it.", ""); return; }
-    if (this.state.items.razzberry <= 0) { this.ui.toast("No Razz Berries! Buy some, or pick them from bushes.", "bad"); this.audio.play("deny"); return; }
-    if (w.berryBonus > 1) { this.ui.toast("It's already munching happily.", ""); return; }
-    this.state.items.razzberry--;
-    w.berryBonus = 1.5;
-    this.audio.play("pet");
-    this.audio.cry(w.mon.sp, DEX[w.mon.sp].height);
-    this.fx.hearts(w.pos(), 4);
-    this.ui.toast(`${monName(w.mon)} is distracted by the berry — now's your chance!`, "good");
-    this.ui.updateHUD();
   }
   // ---------------------------------------------------------- fishing (v3)
   startFishing(spot: THREE.Vector3) {
@@ -3887,7 +4056,7 @@ export class Game {
     }
     for (const c of this.civs) {
       const d = this.playerPos.distanceTo(c.pos);
-      if (d < 2.6) cands.push({ d, it: { id: "civ", civ: c, label: `interrupt the ${c.name}` } });
+      if (d < 2.6) cands.push({ d, it: { id: "civ", civ: c, label: c.phone ? `interrupt the ${c.name}` : `chat with the ${c.name}` } });
     }
     // pet your follower — only when nothing else competes for the E key
     // (it follows you everywhere; it must never shadow a nurse or a shop counter)
@@ -3911,18 +4080,16 @@ export class Game {
     if (it.id === "pet") {
       this.petFollower();
     } else if (it.id === "civ") {
-      // they answer without looking up from the screen
+      // strollers stop for a proper chat; scrollers answer without looking up
       this.audio.play("ui");
       await this.ui.dialog(it.civ.name, it.civ.nextLines());
     } else if (it.id === "berry") {
       if (this.world.pickBerry(it.bush)) {
-        const got: string[] = [];
-        const n1 = irnd(1, 2);
-        this.state.items.oranberry += n1; got.push(`${n1}× Oran Berry`);
-        if (Math.random() < 0.6) { this.state.items.razzberry += 1; got.push("1× Razz Berry"); }
+        const n1 = irnd(2, 3);
+        this.state.items.oranberry += n1;
         this.audio.play("pickup");
         this.fx.burst(it.pos.clone().add(V3(0, 0.8, 0)), { count: 10, col: "#ff6b6b", col2: "#4d96ff", speed: 2, size: 0.2, life: 0.45 });
-        this.ui.toast(`Picked ${got.join(" and ")}!`, "good");
+        this.ui.toast(`Picked ${n1}× Oran Berry!`, "good");
         this.ui.updateHUD();
         this.save();
       }
@@ -4117,21 +4284,57 @@ export class Game {
   }
 
   // ----------------------------------------------------------------- input
+  // One hand on WASD, the other on the mouse. Battle keys sit around them:
+  //   Q/E/R/F moves · 1-6 switch Pokémon · Space dodge/dash · Tab switch menu
+  //   G throw Ball · Z quick-heal · X run · T take over (first-person)
   onKey(k) {
     if (this.battle && !this.ui.modalOpen) {
-      if (k >= "1" && k <= "4") this.battle.useMove("ally", +k - 1);
-      else if (k === "c") this.ui.openSwitch(false).then((idx) => { if (idx != null && this.battle) this.battle.doSwitch(idx); });
-      else if (k === "r") this.battle.tryRun();
-      else if (k === "q") this.battle.tryDodge();
-      else if (k === "t") this.battle.togglePossess();
-      else if (k === " ") { if (this.battle.possessed) this.battle.possessDash(); }
-      else if (k === "b") this.feedBerry();
+      const b = this.battle;
+      const mi = MOVE_KEYS.indexOf(k);
+      if (mi >= 0) b.useMove("ally", mi);
+      else if (k >= "1" && k <= "6") {
+        const idx = +k - 1, mon = this.state.party[idx];
+        if (!mon) return;
+        if (mon === b.allyMon) return;
+        if (mon.hp <= 0) { this.ui.toast(`${monName(mon)} has no energy left!`, "bad"); return; }
+        b.doSwitch(idx);
+      }
+      else if (k === "tab") this.ui.openSwitch(false).then((idx) => { if (idx != null && this.battle) this.battle.doSwitch(idx); });
+      else if (k === "g") this.quickBall();
+      else if (k === "z") this.quickHeal();
+      else if (k === "x") b.tryRun();
+      else if (k === " ") b.tryDodge();
+      else if (k === "t") b.togglePossess();
       return;
     }
     if (k === "e") this.interact();
     if (k === "f") this.engageTarget();
-    if (k === "b") this.feedBerry();
     if (k === "v") this.toggleVehicle();
+    if (k === "g") this.quickThrowAt(this.target);    // same lob as a click
+    if (k === "z") this.quickHeal();                  // patch up the lead mon anywhere
+  }
+  // G — the dedicated Ball key. Works from possession too: you hop back into
+  // your own hands for the throw, then dive right back in.
+  quickBall() {
+    const b = this.battle;
+    if (!b) return;
+    if (b.type === "trainer") { this.ui.toast("The Trainer blocked the Ball! Don't be a thief!", "bad"); return; }
+    if (b.possessed && this.ballType()) b.autoEject();
+    this.quickThrowAt(b.enemyEnt);
+  }
+  // Z — the dedicated item key: feeds the best healing item to your battler.
+  quickHeal() {
+    const mon = this.battle ? this.battle.allyMon : this.activeMon();
+    if (!mon) return;
+    const idx = this.state.party.indexOf(mon);
+    if (mon.hp >= mon.maxhp || mon.hp <= 0) { this.ui.toast(mon.hp <= 0 ? "It fainted — use a Revive from the bag (I)." : `${monName(mon)} is at full HP.`, ""); return; }
+    const missing = mon.maxhp - mon.hp;
+    const owned = ["oranberry", "potion", "superpotion"].filter((key) => this.state.items[key] > 0);
+    if (!owned.length) { this.ui.toast("No healing items! Stock up at a PokéMart.", "bad"); this.audio.play("deny"); return; }
+    // smallest item that covers the missing HP; otherwise the biggest we have
+    owned.sort((a, b2) => ITEMS[a].heal - ITEMS[b2].heal);
+    const key = owned.find((o) => ITEMS[o].heal >= missing) || owned[owned.length - 1];
+    this.useItem(key, idx, !!this.battle);
   }
 
   // ---------------------------------------------------------------- update
@@ -4202,15 +4405,15 @@ export class Game {
   }
 
   // ---------------------------------------------------------------- cheats
-  // Teleport destinations for the cheat menu (id -> [x, z]).
-  static CHEAT_TPS = {
+  // Teleport destinations for the cheat menu (design space × MAP_SCALE).
+  static CHEAT_TPS = Object.fromEntries(Object.entries({
     pallet: [-95, 134], viridian: [-95, 30], pewter: [-95, -135], cerulean: [75, -160],
     saffron: [75, -25], celadon: [-30, -25], lavender: [205, -25], vermilion: [75, 95],
     fuchsia: [-30, 175], cinnabar: [-95, 258], indigo: [-212, -193],
     forest: [-100, -55], mtmoon: [-15, -175], rocktunnel: [195, -125], powerplant: [247, -84],
     safari: [5, 130], seafoam: [-30, 244], cycling: [-30, 75], victory: [-200, -80],
     ceruleancave: [56, -200], bill: [135, -242],
-  };
+  }).map(([k, [x, z]]) => [k, [x * MAP_SCALE, z * MAP_SCALE]]));
   cheat(action, arg?) {
     const s = this.state;
     switch (action) {

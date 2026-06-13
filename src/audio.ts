@@ -69,7 +69,8 @@ export class AudioMan {
   }
 
   // --- species cry: a unique two-segment chirp derived from the dex id ---
-  cry(spId: number, height = 10) {
+  // vol < 1 gives the soft, distant call of ambient wildlife
+  cry(spId: number, height = 10, vol = 1) {
     this.ensure(); if (!this.ctx) return;
     const h = (salt: number) => (((spId * 2654435761 + salt * 1013904223) >>> 0) % 1000) / 1000;
     // bigger Pokémon growl lower and longer
@@ -79,9 +80,9 @@ export class AudioMan {
     const types: OscillatorType[] = ["square", "sawtooth", "triangle"];
     const wave = types[Math.floor(h(3) * 3)];
     const dur = 0.16 + sizeK * 0.22 + h(4) * 0.1;
-    this.tone({ f: base * wob, f2: base * (0.55 + h(5) * 0.3), dur, type: wave, g: 0.13 });
-    this.tone({ f: base * 1.5, f2: base * (h(6) < 0.5 ? 2.1 : 0.8), t: dur * 0.55, dur: dur * 0.8, type: wave, g: 0.09 });
-    if (h(7) > 0.6) this.noise({ t: dur * 0.3, dur: 0.08, g: 0.04, fLo: base * 2, fHi: base * 5 });
+    this.tone({ f: base * wob, f2: base * (0.55 + h(5) * 0.3), dur, type: wave, g: 0.13 * vol });
+    this.tone({ f: base * 1.5, f2: base * (h(6) < 0.5 ? 2.1 : 0.8), t: dur * 0.55, dur: dur * 0.8, type: wave, g: 0.09 * vol });
+    if (h(7) > 0.6) this.noise({ t: dur * 0.3, dur: 0.08, g: 0.04 * vol, fLo: base * 2, fHi: base * 5 });
   }
 
   // --- named SFX -------------------------------------------------------
@@ -120,9 +121,6 @@ export class AudioMan {
       slowmoEnd: () => S.tone({ f: 180, f2: 720, dur: 0.25, type: "sine", g: 0.06 }),
       aimtick: () => S.tone({ f: 1200, dur: 0.03, type: "square", g: 0.03 }),
       ringNice: () => S.seq([880, 1109], { g: 0.09, step: 0.06, type: "triangle" }),
-      ringGreat: () => S.seq([880, 1109, 1319], { g: 0.1, step: 0.06, type: "triangle" }),
-      ringExcellent: () => S.seq([1047, 1319, 1568, 2093], { g: 0.11, step: 0.055, type: "triangle" }),
-      curve: () => S.noise({ dur: 0.35, g: 0.07, fLo: 1500, fHi: 5200, fEnd: 700 }),
       dodge: () => S.noise({ dur: 0.16, g: 0.12, fLo: 800, fHi: 3400, fEnd: 5000 }),
       shoot: () => S.noise({ dur: 0.22, g: 0.1, fLo: 900, fHi: 3000, fEnd: 600 }),
       counter: () => S.seq([660, 990], { g: 0.1, step: 0.05, type: "square" }),

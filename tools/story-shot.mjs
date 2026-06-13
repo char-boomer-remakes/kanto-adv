@@ -81,19 +81,19 @@ const lab = await page.evaluate(() => ({
 console.log("lab battle:", lab);
 await shot("story-4-labbattle");
 
-// civilians: warp to Viridian and look at a phone zombie
+// civilians: warp to a town square and meet the locals (one's on their phone)
 await page.evaluate(() => { DEBUG.game.battle?.end("fled"); });
 await sleep(600);
 await page.evaluate(() => {
   const g = DEBUG.game;
-  const c = g.civs[2];                       // a Viridian scroller
+  const c = g.civs.find((x) => x.phone) || g.civs[2];
   g.playerPos.set(c.pos.x + 1.5, c.pos.y, c.pos.z + 1.5);
   DEBUG.look(Math.atan2(c.pos.x - g.playerPos.x, c.pos.z - g.playerPos.z) + Math.PI, -0.05);
-  g.world.timeOfDay = 0.7;                   // night: screens glow
+  g.world.timeOfDay = 0.7;                   // night: the one glowing screen stands out
 });
 await sleep(800);
 console.log("civ interact:", await page.evaluate(() => DEBUG.game.nearestInteract()?.label || null));
-await shot("story-5-phonezombie");
+await shot("story-5-townsfolk");
 
 // PokéGram feed
 await page.evaluate(() => DEBUG.game.ui.openGram());

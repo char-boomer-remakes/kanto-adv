@@ -3,7 +3,7 @@
 // battle switch, move learning, pause/settings).
 import * as THREE from "three";
 import { DEX, MOVES, TYPE_COLORS, TYPE_CHART, spriteURL, POKEDEX } from "./data.js";
-import { ITEMS, monName, xpForLevel, BADGE_META, Game, speciesSkill, SKILL_LABEL, habitatFor, currentSlot, setSlot, slotStorageKey, slotMeta, fmtPlaytime } from "./game.js";
+import { ITEMS, monName, xpForLevel, BADGE_META, Game, speciesSkill, SKILL_LABEL, habitatFor, currentSlot, setSlot, slotStorageKey, slotMeta, fmtPlaytime, MOVE_KEYS } from "./game.js";
 
 const $ = (id): any => document.getElementById(id);
 const el = (tag, cls?, html?): any => {
@@ -75,11 +75,12 @@ export class UI {
       const label = e.target.options[e.target.selectedIndex].text.split("—")[0].trim();
       this.toast(this.game.battle ? `Battle style: ${label} — starts with your next battle.` : `Battle style: ${label}`, "good");
     });
-    $("btnSwitch").addEventListener("click", () => this.game.onKey("c"));
-    $("btnRun").addEventListener("click", () => this.game.onKey("r"));
+    $("btnSwitch").addEventListener("click", () => this.game.onKey("tab"));
+    $("btnRun").addEventListener("click", () => this.game.onKey("x"));
     $("btnDodge")?.addEventListener("click", () => this.game.battle?.tryDodge());
     $("btnPossess")?.addEventListener("click", () => this.game.battle?.togglePossess());
-    $("btnBag").addEventListener("click", () => this.openBag());
+    $("btnBall")?.addEventListener("click", () => this.game.quickBall());
+    $("btnHeal")?.addEventListener("click", () => this.game.quickHeal());
     $("btnGram").addEventListener("click", () => { this.hide("m-pause"); this.openGram(); });
     $("btnCheats").addEventListener("click", () => this.openCheats());
     // name entry: OK button / Enter key confirm
@@ -149,17 +150,23 @@ export class UI {
     }
     if (this.modalOpen) {
       const top = this.modalStack[this.modalStack.length - 1];
-      if (k === "escape" || (k === "tab" && top === "m-dex") || (k === "i" && top === "m-bag") || (k === "p" && top === "m-party") || (k === "g" && top === "m-gram")) {
+      if (k === "escape" || (k === "tab" && top === "m-dex") || (k === "i" && top === "m-bag") || (k === "p" && top === "m-party")) {
         this.closeTop();
         return true;
       }
       return true; // swallow keys while modal open
     }
     if (!this.game.state.started) return true;
+    // mid-battle the menu keys hand over to the battle controls: Tab switches
+    // your Pokémon, I still opens the full bag, the rest waits for the overworld
+    if (this.game.battle) {
+      if (k === "i") { this.openBag(); return true; }
+      if (k === "escape") { this.openPause(); return true; }
+      return false;
+    }
     if (k === "tab") { this.openDex(); return true; }
     if (k === "i") { this.openBag(); return true; }
     if (k === "p") { this.openParty(); return true; }
-    if (k === "g") { this.openGram(); return true; }
     if (k === "escape") { this.openPause(); return true; }
     return false;
   }
@@ -224,6 +231,7 @@ export class UI {
     s.party.forEach((m, i) => {
       const lead = this.game.activeMon() === m;
       const d = el("div", `pslot${lead ? " active" : ""}${m.hp <= 0 ? " fainted" : ""}`, `
+        <span class="slotkey">${i + 1}</span>
         <img class="px" src="${spriteURL(m.sp)}" alt="">
         <div class="bars">
           <div class="nm"><span>${esc(monName(m))}</span><span>Lv ${m.lv}</span></div>
@@ -241,6 +249,8 @@ export class UI {
     const cinematic = this.titleActive || !!this.game?.introCam;
     const hud = $("hud");
     if (hud.style.visibility !== (cinematic ? "hidden" : "")) hud.style.visibility = cinematic ? "hidden" : "";
+    // the overworld key legend yields the corner once a battle owns the keys
+    $("hint").classList.toggle("hidden", !!this.battle);
     // floaters
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i];
@@ -298,12 +308,12 @@ export class UI {
           const verb = SKILL_LABEL[speciesSkill(b.allyMon.sp)];
           dBtn.classList.toggle("hot", cdLeft <= 0 && b.incoming && b.incoming.t > 0);
           dBtn.classList.toggle("disabled", cdLeft > 0);
-          dBtn.innerHTML = cdLeft > 0 ? `${verb} <small>${cdLeft.toFixed(1)}s</small> <span class="key">Spc</span>` : `${verb} <span class="key">Spc</span>`;
+          dBtn.innerHTML = cdLeft > 0 ? `${verb} <small>${cdLeft.toFixed(1)}s</small> <span class="kbd">Spc</span>` : `${verb} <span class="kbd">Spc</span>`;
         } else {
           const hot = b.incoming && b.incoming.t > 0 && b.dodgeCd <= 0;
           dBtn.classList.toggle("hot", !!hot);
           dBtn.classList.toggle("disabled", b.dodgeCd > 0);
-          dBtn.innerHTML = b.dodgeCd > 0 ? `Dodge <small>${Math.ceil(b.dodgeCd)}s</small> <span class="key">Q</span>` : `Dodge <span class="key">Q</span>`;
+          dBtn.innerHTML = b.dodgeCd > 0 ? `Dodge <small>${Math.ceil(b.dodgeCd)}s</small> <span class="kbd">Spc</span>` : `Dodge <span class="kbd">Spc</span>`;
         }
       }
       // status line: possession controls in fp, turn prompts in classic
@@ -311,11 +321,11 @@ export class UI {
       if (posBar) {
         if (classic) {
           posBar.classList.remove("hidden");
-          posBar.innerHTML = b.turnPhase === "player" ? `<b>Your move</b> — pick an attack (1-4), throw, switch or run` : `…`;
+          posBar.innerHTML = b.turnPhase === "player" ? `<b>Your move</b> — pick an attack (Q/E/R/F), throw, switch or run` : `…`;
         } else if (b.style === "fp") {
           posBar.classList.remove("hidden");
           if (b.possessed) {
-            posBar.innerHTML = `Playing as <b>${esc(monName(b.allyMon))}</b> — WASD move · <b>Space</b> dash · <b>click/1-4</b> attack · <b>T</b> back to trainer`;
+            posBar.innerHTML = `Playing as <b>${esc(monName(b.allyMon))}</b> — WASD move · <b>Space</b> dash · <b>click / Q E R F</b> attack · <b>T</b> back to trainer`;
           } else {
             posBar.innerHTML = `<b>T</b> — take control of ${esc(monName(b.allyMon))}`;
           }
@@ -325,6 +335,20 @@ export class UI {
       if (pBtn) {
         pBtn.style.display = b.style === "fp" ? "" : "none";
         pBtn.innerHTML = b.possessed ? `Trainer <span class="kbd">T</span>` : `Take Over <span class="kbd">T</span>`;
+      }
+      // quick-slot buttons mirror what G and Z will actually do right now
+      const ballBtn = $("btnBall");
+      if (ballBtn) {
+        const bt = this.game.ballType();
+        const blocked = b.type === "trainer" || !bt;
+        ballBtn.classList.toggle("disabled", blocked);
+        ballBtn.innerHTML = `${bt ? `${esc(ITEMS[bt].name)} ×${this.game.state.items[bt]}` : "No Balls"} <span class="kbd">G</span>`;
+      }
+      const healBtn = $("btnHeal");
+      if (healBtn) {
+        const heals = ["oranberry", "potion", "superpotion"].reduce((n, k) => n + (this.game.state.items[k] || 0), 0);
+        healBtn.classList.toggle("disabled", heals <= 0);
+        healBtn.innerHTML = `Heal ×${heals} <span class="kbd">Z</span>`;
       }
       // incoming attack telegraph
       const tele = $("telegraph");
@@ -362,9 +386,8 @@ export class UI {
       const t = g.target;
       if (t && !t.dead && !g.aim) {
         const m = t.mon, spec = DEX[m.sp];
-        const berry = t.berryBonus > 1 ? " · 🍓 distracted!" : "";
-        $("nameplate").innerHTML = `<b>${esc(spec.name)}</b> Lv ${m.lv} &nbsp;<span class="small">${Math.ceil(m.hp)}/${m.maxhp} HP · ${esc(spec.rarity)}${berry}</span><br>
-          <span class="small">tap: throw ${esc(ITEMS[this.game.ballType() || "pokeball"].name)} · hold: AIM · B: berry · F: battle</span>`;
+        $("nameplate").innerHTML = `<b>${esc(spec.name)}</b> Lv ${m.lv} &nbsp;<span class="small">${Math.ceil(m.hp)}/${m.maxhp} HP · ${esc(spec.rarity)}</span><br>
+          <span class="small">tap/G: throw ${esc(ITEMS[this.game.ballType() || "pokeball"].name)} · hold: aim · F: battle</span>`;
         $("nameplate").classList.remove("hidden");
         $("crosshair").classList.add("active");
       } else {
@@ -411,7 +434,7 @@ export class UI {
       w.textContent = `${info.icon} ${info.label}`;
     }
   }
-  // big center banner for catch feats ("Excellent! + Curveball!")
+  // big center banner for catch moments ("Gotcha!")
   catchBanner(text) {
     const b = $("catchbanner");
     if (!b) return;
@@ -422,6 +445,23 @@ export class UI {
     b.classList.add("pop");
     clearTimeout(this.bannerT);
     this.bannerT = setTimeout(() => b.classList.add("hidden"), 1700);
+  }
+  // crosshair hitmarker — your possessed shot/strike connected
+  hitmarker(strong = false) {
+    const h = $("hitmark");
+    if (!h) return;
+    h.classList.toggle("strong", strong);
+    h.classList.remove("pop");
+    void h.offsetWidth;
+    h.classList.add("pop");
+  }
+  // red edge flash — your possessed Pokémon just ate a hit
+  hurtFlash() {
+    const f = $("hurtflash");
+    if (!f) return;
+    f.classList.remove("pop");
+    void f.offsetWidth;
+    f.classList.add("pop");
   }
 
   // -------------------------------------------------------------- dialog
@@ -584,16 +624,13 @@ export class UI {
         <span class="inf"><b>${esc(item.name)}</b><small>${esc(item.desc)}</small></span>
         <span class="qty">×${n}</span>`);
       const direct = ["repel", "lure", "escaperope", "nugget"].includes(key);
-      const passive = key === "razzberry";
-      const btn = el("button", "", item.ball ? "Equip" : passive ? "Info" : "Use");
+      const btn = el("button", "", item.ball ? "Equip" : "Use");
       btn.addEventListener("click", async () => {
         if (item.ball) {
           const owned = ["pokeball", "greatball", "ultraball"].filter((b) => g.state.items[b] > 0);
           g.ballIdx = Math.max(0, owned.indexOf(key));
           this.toast(`${item.name} equipped for throwing.`, "good");
           this.updateHUD();
-        } else if (passive) {
-          this.toast("Look at a wild Pokémon and press B to toss it a Razz Berry.", "");
         } else if (direct) {
           if (g.useItem(key, -1, !!g.battle)) this.openBag();
         } else {
@@ -1074,7 +1111,7 @@ export class UI {
       }
       const b = el("button", "movebtn", `
         <div class="cd"></div>
-        <span class="key">${i + 1}</span>
+        <span class="key">${(MOVE_KEYS[i] || "").toUpperCase()}</span>
         <div class="mname">${esc(mv.name)} ${effTag}</div>
         ${chip(mv.type)}
         <div class="minfo"><span>${mv.power ? "PWR " + mv.power : "status"}</span><span>${mv.acc ? mv.acc + "%" : "∞"}</span><span class="pp">PP ${pp}</span></div>`);

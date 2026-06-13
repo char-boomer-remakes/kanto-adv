@@ -17,7 +17,11 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 900);
+const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 1500);
+// filmic look: ACES tonemapping + correct sRGB output
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
 
 const audio = new AudioMan();
 const world = new World(scene);
@@ -100,10 +104,9 @@ function updateLockMsg() {
 }
 setInterval(updateLockMsg, 400);
 
-// --- mouse: tap = quick throw / engage; hold = aim mode; flick on release = curve
+// --- mouse: tap = quick throw / engage; hold = aim mode with a clean arc
 let mouseDownT = 0;
 let aimTimer: ReturnType<typeof setTimeout> | null = null;
-let flick = 0;              // smoothed horizontal mouse velocity for curveballs
 
 canvas.addEventListener("mousedown", (e) => {
   audio.ensure();
@@ -111,7 +114,6 @@ canvas.addEventListener("mousedown", (e) => {
   if (ui.blocking || !game.state.started) return;
   if (!locked) return;
   mouseDownT = performance.now();
-  flick = 0;
   // holding for a beat enters aim mode (only when a throw is possible —
   // including from inside your Pokémon, which auto-returns you to the trainer)
   if (game.canThrowNow(false) || game.canAimWhilePossessed()) {
@@ -122,7 +124,7 @@ canvas.addEventListener("mouseup", (e) => {
   if (e.button !== 0) return;
   if (aimTimer) { clearTimeout(aimTimer); aimTimer = null; }
   if (ui.blocking || !game.state.started || !locked) return;
-  if (game.aim) game.releaseAim(flick);
+  if (game.aim) game.releaseAim();
   else if (performance.now() - mouseDownT < 300) game.onClick();
 });
 canvas.addEventListener("click", () => {
@@ -132,9 +134,8 @@ canvas.addEventListener("click", () => {
 });
 document.addEventListener("mousemove", (e) => {
   if (!locked) return;
-  // while aiming, horizontal motion bends the throw instead of turning the head
+  // while aiming, look speed eases down so fine-tuning the arc feels deliberate
   if (game.aim) {
-    flick = flick * 0.72 + e.movementX * 0.28;
     player.yaw -= e.movementX * sens() * 0.25;
     player.pitch = clamp(player.pitch - e.movementY * sens() * 0.6, -1.45, 1.45);
     return;
@@ -201,8 +202,9 @@ function movePlayer(dt) {
   const ground = world.height(player.pos.x, player.pos.z);
   const inWater = ground < world.waterY - 0.55;
   if (veh && inWater) { game.dismountVehicle(false); audio.play("splash"); }
-  // RBY pacing: the bike doubles your walk; the truck is a champion's joyride
-  let speed = (veh === "truck" ? 15 : veh === "bike" ? 10.6 : run ? 8.8 : 5.2)
+  // full-Kanto pacing: brisker on foot, the bike roughly doubles your walk,
+  // the truck is a champion's joyride
+  let speed = (veh === "truck" ? 21 : veh === "bike" ? 14 : run ? 10.5 : 6.2)
     * (inWater ? 0.52 : 1) * (game.state.cheats?.speed ? 1.9 : 1);
   // camera looks down -Z at yaw 0; right is +X
   let vx = -Math.sin(player.yaw) * fwd + Math.cos(player.yaw) * str;
@@ -246,7 +248,7 @@ const clock = new THREE.Clock();
 let possessBlend = 0;
 const monEye = new THREE.Vector3();
 // the title screen drifts over Pallet Town while you pick a save file
-const TITLE_ORBIT = { x: -95, z: 130, r: 30, h: 12, look: 2.5 };
+const TITLE_ORBIT = { x: -190, z: 260, r: 52, h: 16, look: 2.5 };
 function loop() {
   requestAnimationFrame(loop);
   const rawDt = Math.min(clock.getDelta(), 0.05);
@@ -255,7 +257,7 @@ function loop() {
   if (!ui.blocking && game.state.started) movePlayer(rawDt * (0.55 + 0.45 * game.timeScale));
   world.update(dt, player.pos);
   if (!ui.blocking) game.update(rawDt);
-  game.updateAmbient(rawDt);   // phone-zombies + intro showcase animate even on the title screen
+  game.updateAmbient(rawDt);   // townsfolk + intro showcase animate even on the title screen
   fx.update(dt);
   const biome = world.biomeAt(player.pos.x, player.pos.z);
   audio.ambient(dt, biome, world.isNight(), !!game.battle, world.caveDim > 0.5);
@@ -281,7 +283,7 @@ function loop() {
     const wantPossess = pb && pb.possessed && pb.allyEnt && !pb.allyEnt.dead ? 1 : 0;
     possessBlend += (wantPossess - possessBlend) * Math.min(1, rawDt * 5);
     if (Math.abs(possessBlend - wantPossess) < 0.012) possessBlend = wantPossess;
-    if (wantPossess) monEye.copy(pb.allyEnt.eye());
+    if (wantPossess) monEye.copy(pb.allyEnt.povEye());
     if (possessBlend > 0.001) {
       const s = possessBlend * possessBlend * (3 - 2 * possessBlend);
       camera.position.lerp(monEye, s);
