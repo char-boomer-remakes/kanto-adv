@@ -375,7 +375,9 @@ const hotkeys = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 700));   // outlast the opening ally lock
   const b = g.battle;
   if (!b) return { battle: false };
-  // Q fires move 1 (cooldown starts ticking)
+  // Q fires move 1 (cooldown starts ticking) — clear the opening lock first;
+  // throttled headless RAF can leave it live long past wall-clock 700ms
+  b.lock.ally = 0; b.cds.ally = [0, 0, 0, 0];
   g.onKey("q");
   const qUsed = b.cds.ally[0] > 0;
   // 2 switches straight to party slot 2 — no menu (the new battler becomes slot 1)
@@ -1133,7 +1135,12 @@ ok("Rattata rustles around the tall grass", grassy.habitat === "grass" && grassy
 
 // battle transition: the bird swoops DOWN to fight, and flies off if you flee
 const swoop = await page.evaluate(() => {
-  const g = DEBUG.game, w = window.__sky;
+  const g = DEBUG.game;
+  let w = window.__sky;
+  // the full-scale map means the earlier habitat hops may have distance-culled
+  // the original bird — spawn a fresh one where we stand now
+  if (!w || w.dead || !g.wilds.includes(w)) w = window.__sky = DEBUG.spawn(16, 6);
+  w.life = 99999;
   g.playerPos.set(w.base.x + 6, g.world.height(w.base.x + 6, w.base.z) + 1.7, w.base.z);
   g.startWildBattle(w);
   return { battle: !!g.battle };
@@ -1241,20 +1248,30 @@ const tok = await page.evaluate(() => {
 });
 ok("dialogs replace {player}/{rival} tokens", tok.name === "Gary" && tok.text === "Hey Red! Watch this!", JSON.stringify(tok));
 // PokéGram: posts render, and the bottom is a lie
-const gram = await page.evaluate(async () => {
+const gram = await page.evaluate(() => {
   const ui = DEBUG.game.ui;
   ui.openGram();
   const feed = document.getElementById("gramfeed");
-  const before = feed.childElementCount;
-  feed.scrollTop = feed.scrollHeight;
-  await new Promise((r) => setTimeout(r, 350));
-  const after = feed.childElementCount;
-  const open = !document.getElementById("m-gram").classList.contains("hidden");
-  ui.closeAll();
-  return { before, after, open };
+  return { before: feed.childElementCount, open: !document.getElementById("m-gram").classList.contains("hidden") };
+});
+// scroll-event dispatch can lag far behind on a loaded headless main thread —
+// keep nudging the scroll position and poll for the refill instead of one-shotting
+let gramRefilled = false;
+try {
+  await page.waitForFunction((n) => {
+    const feed = document.getElementById("gramfeed");
+    feed.scrollTop = feed.scrollHeight;
+    return feed.childElementCount > n;
+  }, gram.before, { timeout: 10000, polling: 250 });
+  gramRefilled = true;
+} catch { /* stayed at the "bottom" */ }
+const gramAfter = await page.evaluate(() => {
+  const n = document.getElementById("gramfeed").childElementCount;
+  DEBUG.game.ui.closeAll();
+  return n;
 });
 ok("PokéGram opens with a feed of posts", gram.open && gram.before >= 8, JSON.stringify(gram));
-ok("doomscrolling never ends (feed refills at the bottom)", gram.after > gram.before, `${gram.before} -> ${gram.after}`);
+ok("doomscrolling never ends (feed refills at the bottom)", gramRefilled, `${gram.before} -> ${gramAfter}`);
 await shot("17-pokegram");
 
 // ---------- 18. save/load ----------

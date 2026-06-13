@@ -53,7 +53,7 @@ Setting up on a Windows PC from scratch? See
 
 - `npm run build` / `npm run preview` — production build (outputs `dist/`)
 - `npm run typecheck` — TypeScript check
-- `npm test` — headless-browser e2e suite (107 checks; needs Chrome + a dev
+- `npm test` — headless-browser e2e suite (121 checks; needs Chrome + a dev
   server running; point it elsewhere with `KANTO_URL=http://localhost:PORT`)
 
 > **Fully offline.** The 3D Pokémon are generated procedurally (no model
@@ -346,7 +346,7 @@ src/data.js       GENERATED Gen 1 data (151 Pokémon, 165 moves, PP, growth, typ
 src/data.d.ts     hand-written types for the generated data
 public/sprites/   all 302 official sprites — used by the 2D UI only
 tools/generate_data.py   regenerates src/data.js (needs internet)
-tools/e2e-test.mjs       headless-browser smoke test (107 checks)
+tools/e2e-test.mjs       headless-browser smoke test (121 checks)
 tools/offline-probe.mjs  proves the game runs with all external requests blocked
 tools/gallery-shot.mjs   screenshots every 3D model in batches for review
 tools/possess-shot.mjs   possession-mode diagnostic (take over, move, fire, eject)

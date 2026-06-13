@@ -48,7 +48,7 @@ await until(() => !!window.DEBUG.game.battle);
   await page.evaluate(() => {
     const g = window.DEBUG.game;
     const v = g.launchVelocity().multiplyScalar(0); v.set(-6, 9, -6);
-    g.launchBall(v, 0, false, null);   // deliberate miss
+    g.launchBall(v, false, null);   // deliberate miss
   });
   const thrownGone = await until(() => window.DEBUG.game.thrown.length === 0);
   const backToPlayer = thrownGone && await until(() => window.DEBUG.game.battle?.turnPhase === "player");

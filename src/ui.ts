@@ -57,6 +57,14 @@ export class UI {
     $("btnReset").addEventListener("click", async () => {
       if (await this.confirm("Delete ALL save data and restart from scratch?")) this.game.resetSave();
     });
+    $("btnTitle").addEventListener("click", async () => {
+      if (!(await this.confirm("Return to the main menu? Your progress is saved."))) return;
+      this.game.save();                 // persist before we leave
+      this.game.resetting = true;       // skip the beforeunload re-save
+      // no "proceed" flag → the freshly-booted game lands on the title screen
+      try { sessionStorage.removeItem("kanto_proceed"); } catch (e) { /* fine */ }
+      location.reload();
+    });
     $("setVol").addEventListener("input", (e: any) => {
       this.game.state.settings.vol = +e.target.value;
       this.audio.setVolume(+e.target.value / 100);
@@ -75,10 +83,22 @@ export class UI {
       const label = e.target.options[e.target.selectedIndex].text.split("—")[0].trim();
       this.toast(this.game.battle ? `Battle style: ${label} — starts with your next battle.` : `Battle style: ${label}`, "good");
     });
+    $("setFollowers").addEventListener("change", (e: any) => {
+      this.game.state.settings.followers = e.target.value === "on";
+      this.game.syncFollower();
+      this.game.save();
+      this.toast(this.game.state.settings.followers ? "Your partner will walk with you." : "Your Pokémon will stay in their Balls.", "");
+    });
+    $("setExpShare").addEventListener("change", (e: any) => {
+      this.game.state.settings.expShare = e.target.value === "on";
+      this.game.save();
+      this.toast(this.game.state.settings.expShare ? "Exp. Share on — the whole party grows." : "Exp. Share off — only the battler earns XP.", "");
+    });
     $("btnSwitch").addEventListener("click", () => this.game.onKey("tab"));
     $("btnRun").addEventListener("click", () => this.game.onKey("x"));
     $("btnDodge")?.addEventListener("click", () => this.game.battle?.tryDodge());
     $("btnPossess")?.addEventListener("click", () => this.game.battle?.togglePossess());
+    $("btnMode")?.addEventListener("click", () => this.game.battle?.cycleStyle());
     $("btnBall")?.addEventListener("click", () => this.game.quickBall());
     $("btnHeal")?.addEventListener("click", () => this.game.quickHeal());
     $("btnGram").addEventListener("click", () => { this.hide("m-pause"); this.openGram(); });
@@ -108,7 +128,9 @@ export class UI {
     $("setVol").value = s.vol;
     $("setSens").value = s.sens;
     $("setAI").value = s.ai || "adaptive";
-    $("setStyle").value = s.style || "arena";
+    $("setStyle").value = s.style || "fp";
+    $("setFollowers").value = s.followers === false ? "off" : "on";
+    $("setExpShare").value = s.expShare === false ? "off" : "on";
     this.audio.setVolume(s.vol / 100);
   }
   get modalOpen() { return this.modalStack.length > 0; }
@@ -315,6 +337,12 @@ export class UI {
           dBtn.classList.toggle("disabled", b.dodgeCd > 0);
           dBtn.innerHTML = b.dodgeCd > 0 ? `Dodge <small>${Math.ceil(b.dodgeCd)}s</small> <span class="kbd">Spc</span>` : `Dodge <span class="kbd">Spc</span>`;
         }
+      }
+      // mode toggle: show the current battle mode so the player knows what Y does
+      const mBtn = $("btnMode");
+      if (mBtn) {
+        const short = b.style === "classic" ? "Turn-based" : b.style === "fp" ? "First-Person" : "Real-time";
+        mBtn.innerHTML = `${short} <span class="kbd">Y</span>`;
       }
       // status line: possession controls in fp, turn prompts in classic
       const posBar = $("possessbar");
@@ -703,8 +731,13 @@ export class UI {
     const moveRows = m.moves.map((id, mi) => {
       const mv = MOVES[id];
       const pp = m.pp?.[mi] ?? mv.pp;
-      return `<div class="itemrow" style="padding:4px 6px">${chip(mv.type)}<span class="inf"><b>${esc(mv.name)}</b></span><small>${mv.power ? "PWR " + mv.power : "status"} · ${mv.acc ? "ACC " + mv.acc : "sure hit"} · PP ${pp}/${mv.pp}</small></div>`;
+      return `<div class="itemrow" style="padding:4px 6px">${chip(mv.type)}<span class="inf"><b>${esc(mv.name)}</b></span><small>${mv.power ? "PWR " + mv.power : "status"} · ${mv.acc ? "ACC " + mv.acc : "sure hit"} · PP ${pp}/${mv.pp}</small>${m.moves.length > 1 ? `<button class="forgetmv" data-mi="${mi}" title="Forget this move">✕</button>` : ""}</div>`;
     }).join("");
+    const learnable = g.learnableMoves(m);
+    const learnRows = learnable.length ? learnable.map((id) => {
+      const mv = MOVES[id];
+      return `<div class="itemrow" style="padding:4px 6px;opacity:.92">${chip(mv.type)}<span class="inf"><b>${esc(mv.name)}</b></span><small>${mv.power ? "PWR " + mv.power : "status"} · ${mv.acc ? "ACC " + mv.acc : "sure hit"}</small><button class="learnmv primary" data-mv="${id}">Learn</button></div>`;
+    }).join("") : `<p class="small" style="opacity:.6">No new moves to learn right now.</p>`;
     const hap = m.hap ?? 70;
     const hapTxt = hap >= 220 ? "adores you ♥" : hap >= 150 ? "is very happy" : hap >= 90 ? "is warming up to you" : hap >= 40 ? "is wary of you" : "doesn't trust you yet";
     $("partydetail").innerHTML = `
@@ -715,8 +748,11 @@ export class UI {
       <div class="small" style="margin:2px 0">It ${hapTxt} <span style="opacity:.6">(friendship ${hap}/255 — pet your lead, win battles${hap >= 200 ? " · +10% XP!" : ""})</span></div>
       <div class="xpbar" style="margin:4px 0"><div style="width:${this.xpFrac(m) * 100}%"></div></div>
       <div class="small">XP ${m.xp.toLocaleString()} · next level in ${toNext.toLocaleString()}</div>
-      <div style="margin-top:6px">${moveRows}</div>
-      <div class="right" style="display:flex;gap:8px;justify-content:flex-end">
+      <div class="small" style="margin-top:8px;opacity:.7">MOVES <span style="opacity:.6">(✕ to forget)</span></div>
+      <div style="margin-top:2px">${moveRows}</div>
+      <div class="small" style="margin-top:8px;opacity:.7">CAN LEARN</div>
+      <div style="margin-top:2px">${learnRows}</div>
+      <div class="right" style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
         <button id="walkWithMe">${g.followerMon() === m ? "Send back to Ball" : "Walk with me"}</button>
         <button id="makeLead" class="primary">Make Lead</button>
       </div>`;
@@ -730,6 +766,26 @@ export class UI {
       g.setFollowerMon(g.followerMon() === m ? null : m);
       this.openParty();
       this.partyDetail(i);
+    });
+    $("partydetail").querySelectorAll(".forgetmv").forEach((btn: any) => {
+      btn.addEventListener("click", (e: any) => {
+        e.stopPropagation();
+        g.forgetMove(m, +btn.dataset.mi);
+        this.partyDetail(i);
+      });
+    });
+    $("partydetail").querySelectorAll(".learnmv").forEach((btn: any) => {
+      btn.addEventListener("click", async (e: any) => {
+        e.stopPropagation();
+        const moveId = +btn.dataset.mv;
+        if (m.moves.length >= 4) {
+          const slot = (await this.learnPrompt(m, moveId)) as number;
+          if (slot != null && slot >= 0) g.teachMove(m, moveId, slot);
+        } else {
+          g.teachMove(m, moveId);
+        }
+        this.partyDetail(i);
+      });
     });
   }
 
@@ -1008,6 +1064,9 @@ export class UI {
     this.gramMore(8);
     $("gramtime").textContent = `screen time today: ${fmtPlaytime(this.game.state.playT || 0)}`;
     this.show("m-gram");
+    // top up until the feed actually overflows — a feed you can't scroll
+    // would be the only way OUT of doomscrolling, and we can't have that
+    for (let i = 0; i < 8 && feed.scrollHeight <= feed.clientHeight + 240; i++) this.gramMore(4);
     feed.scrollTop = 0;
   }
   gramMore(n: number) {

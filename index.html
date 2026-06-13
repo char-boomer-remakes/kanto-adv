@@ -52,6 +52,9 @@ small,.small{font-size:11px;color:var(--dim)}
   background:radial-gradient(ellipse at center,transparent 55%,rgba(255,40,40,.45) 100%)}
 #hurtflash.pop{animation:hurtpop .4s ease-out}
 @keyframes hurtpop{0%{opacity:1}100%{opacity:0}}
+/* a whisper of a vignette pulls the eye to the center, filmic-style */
+#vignette{position:fixed;inset:0;pointer-events:none;z-index:3;
+  background:radial-gradient(ellipse at center,transparent 64%,rgba(2,6,14,.30) 100%)}
 .hudpanel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
   backdrop-filter:var(--glass);-webkit-backdrop-filter:var(--glass)}
 #topleft{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:8px}
@@ -370,6 +373,7 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
     <div id="battleside">
       <button id="btnDodge">Dodge <span class="kbd">Spc</span></button>
       <button id="btnPossess">Take Over <span class="kbd">T</span></button>
+      <button id="btnMode">Mode <span class="kbd">Y</span></button>
       <button id="btnSwitch">Switch <span class="kbd">1-6</span></button>
       <button id="btnBall">Ball <span class="kbd">G</span></button>
       <button id="btnHeal">Heal <span class="kbd">Z</span></button>
@@ -382,6 +386,7 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
 <div id="lockmsg" class="hidden">Click to play</div>
 <div id="fade"></div>
 <div id="underwater"></div>
+<div id="vignette"></div>
 <div id="hurtflash"></div>
 
 <div id="title" class="hidden">
@@ -474,9 +479,17 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
   <div class="setrow"><span>Master volume</span><input type="range" id="setVol" min="0" max="100"></div>
   <div class="setrow"><span>Mouse sensitivity</span><input type="range" id="setSens" min="20" max="200"></div>
   <div class="setrow"><span>Battle style</span><select id="setStyle">
+    <option value="fp">First-Person — move with WASD, BE your Pokémon</option>
     <option value="arena">Arena — real-time cooldowns, balanced</option>
-    <option value="fp">First-Person — BE your Pokémon, skill decides</option>
     <option value="classic">Classic — turn-based, like the originals</option>
+  </select></div>
+  <div class="setrow"><span>Walking partner</span><select id="setFollowers">
+    <option value="on">On — your Pokémon walks with you</option>
+    <option value="off">Off — keep them in their Balls</option>
+  </select></div>
+  <div class="setrow"><span>Exp. Share</span><select id="setExpShare">
+    <option value="on">On — whole party shares experience</option>
+    <option value="off">Off — only the battler earns XP</option>
   </select></div>
   <div class="setrow"><span>Opponent AI</span><select id="setAI">
     <option value="adaptive">Adaptive — sharpens as you earn badges</option>
@@ -487,7 +500,10 @@ select,input[type=text],input[type=number]{font:inherit;color:inherit;background
   <div class="setrow"><span>Check your PokéGear</span><button id="btnGram">PokéGram</button></div>
   <div class="setrow"><span>Cheats &amp; fun stuff</span><button id="btnCheats">Open Cheats…</button></div>
   <div class="setrow"><span>Progress is auto-saved</span><button id="btnReset" class="red">Reset save…</button></div>
-  <div class="right"><button id="btnResume" class="primary">Resume (Esc)</button></div>
+  <div class="right" style="display:flex;gap:8px;justify-content:flex-end">
+    <button id="btnTitle">Quit to Main Menu</button>
+    <button id="btnResume" class="primary">Resume (Esc)</button>
+  </div>
 </div></div>
 
 <div id="m-fame" class="modal hidden"><div class="sheet" style="text-align:center;min-width:520px">

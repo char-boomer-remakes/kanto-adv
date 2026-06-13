@@ -1192,12 +1192,17 @@ interface BattleProj {
   minD: number;       // closest approach to the target (near-miss = dodge!)
   grav: number;
   dmgMul: number;     // weakened by mid-air duels / wind deflection
+  idx?: number;       // which move slot fired it (so PP only spends on a hit)
 }
 // a lingering pool left by a lobbed move (Sludge, Acid, Bubble...)
 interface Hazard {
   p: THREE.Vector3; r: number; t: number;
   type: string; side: string; tickT: number; fxT: number;
 }
+// difficulty knobs (kept gentle for now): the enemy deals less and acts a
+// touch slower, so the spatial/dodge game is forgiving while you learn it
+const EASE_ENEMY_DMG = 0.68;
+const EASE_ENEMY_PACE = 0.6;   // extra hesitation (seconds-ish) between enemy actions
 // visual move kinds that fly across the arena instead of needing contact
 const RANGED_KINDS = new Set(["proj", "stream", "lob", "beam", "bolt", "ring", "pulse", "tornado", "wave", "sky", "toss", "cone"]);
 // beams & bolts punch straight through lesser projectiles
@@ -1429,6 +1434,41 @@ class Battle {
       if (!this.allyEnt.dead) this.allyEnt.rig.group.visible = true;
     }
   }
+  // Live battle-mode switch: flip between real-time (arena/fp) and turn-based
+  // (classic) mid-fight. HP/PP/status/stat-stages all live on the mon and the
+  // battle object, so they carry over untouched — only the transient real-time
+  // bits (cooldowns, projectiles, possession, telegraphs) get reset cleanly.
+  cycleStyle() {
+    const order: Array<"arena" | "fp" | "classic"> = ["arena", "fp", "classic"];
+    this.setStyle(order[(order.indexOf(this.style) + 1) % order.length]);
+  }
+  setStyle(s: "classic" | "arena" | "fp") {
+    if (this.over || s === this.style) return;
+    if (this.possessed) this.setPossessed(false);
+    this.wantPossess = false;
+    // wipe in-flight real-time state so the new mode starts clean
+    for (let i = this.projectiles.length - 1; i >= 0; i--) this.killProj(i, true);
+    this.hazards = [];
+    this.incoming = null; this.dodging = false; this.buffered = null;
+    this.cds = { ally: [0, 0, 0, 0], enemy: [0, 0, 0, 0] };
+    this.lock = { ally: 0.2, enemy: 0.6 };
+    this.dashCd = 0; this.dashT = 0;
+    this.enemyThink = 0.9;
+    this.style = s;
+    if (s === "classic") {
+      this.turnPhase = "player";
+      this.freeTurnPending = false;
+    } else if (s === "fp") {
+      this.wantPossess = true;
+      this.resumeT = 0.5;
+    }
+    // remember the choice so future battles use it too
+    if (this.game.state.settings) this.game.state.settings.style = s;
+    this.game.save();
+    this.game.ui.setBattle(this);     // rebuild the move buttons / HUD layout
+    this.game.ui.applySettings();     // keep the pause-menu dropdown in sync
+    this.game.ui.toast(`Battle mode: ${STYLE_LABEL[s]}`, "good");
+  }
   // movement speed of a battler right now — real stats, real terrain, hazards
   battlerSpeed(side: string) {
     const m = this.monOf(side), ent = this.ent(side);
@@ -1536,7 +1576,7 @@ class Battle {
     return this.distBetween() <= this.meleeReach() + 3.6 ? "ok" : "far";
   }
   expFactor(side: string) { return expFactorFor(this.monOf(side).lv); }
-  execSpatial(side, move) {
+  execSpatial(side, move, idx?: number) {
     const atkEnt = this.ent(side);
     const d = this.game.fx.descFor(move);
     const charge = move.tags?.charge ? 0.55 : 0;
@@ -1559,15 +1599,15 @@ class Battle {
         this.game.ui.floatAt(atkEnt.pos(), "Attack interrupted!", "eff");
         return;
       }
-      if (this.kindOf(move) === "quake") this.quakeWave(side, move);
-      else if (this.isRanged(move)) this.fireProjectile(side, move);
-      else this.meleeStrike(side, move);
+      if (this.kindOf(move) === "quake") this.quakeWave(side, move, idx);
+      else if (this.isRanged(move)) this.fireProjectile(side, move, idx);
+      else this.meleeStrike(side, move, idx);
     };
     windup > 0 ? this.game.fx.after(windup, go) : go();
   }
   // Earthquake/Fissure: a shockwave rolls outward along the ground. You don't
   // sidestep a quake — you time a dash (airborne feet) or get off the floor.
-  quakeWave(side, move) {
+  quakeWave(side, move, idx?: number) {
     const atkEnt = this.ent(side), defEnt = this.ent(this.other(side));
     const fx = this.game.fx;
     const from = atkEnt.feet().clone();
@@ -1588,10 +1628,11 @@ class Battle {
           (this.possessed && this.other(side) === "ally" && this.dashT > 0);
         if (airborne) {
           this.game.ui.floatAt(defEnt.pos(), "Leapt over it!", "eff");
+          this.refundPP(side, idx);   // your quake rolled under them — no PP spent
           if (this.other(side) === "ally") { this.counterT = 4; this.game.audio.play("counter"); }
         } else {
           // closer to the epicenter = harder shake
-          this.resolveHit(side, move, { direct: true, skill: clamp(1.3 - distTo * 0.05, 0.75, 1.3) });
+          this.resolveHit(side, move, { direct: true, skill: clamp(1.3 - distTo * 0.05, 0.75, 1.3), idx });
         }
       }
     });
@@ -1600,7 +1641,7 @@ class Battle {
     const k = this.kindOf(move);
     return k === "beam" || k === "bolt" ? 30 : k === "stream" ? 24 : k === "lob" ? 13 : k === "cone" ? 14 : 18;
   }
-  fireProjectile(side, move) {
+  fireProjectile(side, move, idx?: number) {
     const fx = this.game.fx, d = fx.descFor(move);
     const atkEnt = this.ent(side), defEnt = this.ent(this.other(side));
     let from: THREE.Vector3;
@@ -1645,7 +1686,7 @@ class Battle {
     mesh.position.copy(from);
     const v = dir.multiplyScalar(this.projSpeed(move));
     if (kind === "lob") v.y += 3.6;
-    this.projectiles.push({ p: from, v, side, move, mesh, life: kind === "cone" ? 0.6 : 2.4, trailT: 0, minD: 99, grav: kind === "lob" ? 9 : 0, dmgMul: 1 });
+    this.projectiles.push({ p: from, v, side, move, mesh, life: kind === "cone" ? 0.6 : 2.4, trailT: 0, minD: 99, grav: kind === "lob" ? 9 : 0, dmgMul: 1, idx });
     this.game.audio.play("shoot");
     fx.recoilHop(atkEnt, defEnt.pos(), -0.3);
     fx.flashLight(from, d.col, 1.6, 0.15, 6);
@@ -1655,6 +1696,8 @@ class Battle {
     this.projectiles.splice(i, 1);
     pr.mesh.material.dispose();
     this.game.scene.remove(pr.mesh);
+    // your shot sailed past / hit the scenery — hand the PP back
+    if (!hit && pr.side === "ally") this.refundPP("ally", pr.idx);
     // a clean evade of an enemy shot is a dodge — and an opening
     if (!hit && pr.side === "enemy" && pr.minD < 2.1 && !this.allyEnt.dead) {
       this.game.ui.floatAt(this.allyEnt.pos(), "Dodged it!", "eff");
@@ -1782,7 +1825,7 @@ class Battle {
           const skill = (this.possessed ? 0.8 + q * 0.55 : 1) * pr.dmgMul;
           if (this.possessed && pr.side === "ally" && q > 0.72) this.game.ui.floatAt(tgt.pos(), "Clean hit!", "crit");
           this.killProj(i, true);
-          this.resolveHit(pr.side, pr.move, { direct: true, skill });
+          this.resolveHit(pr.side, pr.move, { direct: true, skill, idx: pr.idx });
           done = true; break;
         }
         if (pr.p.y < w.height(pr.p.x, pr.p.z) + 0.05 || pr.p.y < w.waterY - 0.3) {
@@ -1805,7 +1848,7 @@ class Battle {
       if (pr.life <= 0) this.killProj(i, false);
     }
   }
-  meleeStrike(side, move) {
+  meleeStrike(side, move, idx?: number) {
     const atkEnt = this.ent(side), defEnt = this.ent(this.other(side));
     const fx = this.game.fx;
     const start = atkEnt.base.clone();
@@ -1841,9 +1884,10 @@ class Battle {
             this.game.ui.floatAt(defEnt.pos(), "Interrupted!", "crit");
           }
         }
-        this.resolveHit(side, move, { direct: true, skill });
+        this.resolveHit(side, move, { direct: true, skill, idx });
       } else {
         this.game.ui.floatAt(atkEnt.pos(), `${move.name} missed!`, "miss");
+        this.refundPP(side, idx);   // swung at empty air — keep the PP
         if (side === "enemy") this.counterT = Math.max(this.counterT, 2.5); // a whiff is an opening
         else if (this.possessed) {
           // YOUR whiff is an opening too — the floor drops for sloppy swings
@@ -2064,7 +2108,7 @@ class Battle {
       this.enemyThink -= dt;
       if (this.punishT > 0 && this.enemyThink > 0.3 && this.aiIQ() * 0.5 + this.expFactor("enemy") * 0.5 > 0.45) this.enemyThink -= dt;
       if (this.enemyThink <= 0 && this.lock.enemy <= 0 && !this.enemyEnt.captureLock) {
-        this.enemyThink = rnd(1.1, 0.45) + (1 - this.aiIQ()) * rnd(0.9, 0.3) - this.expFactor("enemy") * 0.25;
+        this.enemyThink = EASE_ENEMY_PACE + rnd(1.1, 0.45) + (1 - this.aiIQ()) * rnd(0.9, 0.3) - this.expFactor("enemy") * 0.25;
         this.enemyAct();
       }
       // v7: live projectiles + the spatial brain + possessed movement
@@ -2295,6 +2339,16 @@ class Battle {
   }
   allyHasStatus() { const c = this.conds.ally; return c.slp > 0 || c.par || c.brn || c.psn || c.frz > 0; }
 
+  // PP now spends on LANDING, not on trying. We still decrement up-front (so
+  // you can't overspend a 1-PP move), then hand the point back whenever the
+  // move whiffs — a miss, a dodge, an out-of-range swing or a no-effect hit.
+  refundPP(side: string, idx?: number) {
+    if (side !== "ally" || idx == null) return;
+    if (this.game.state.cheats?.infpp) return;
+    const m = this.allyMon;
+    const max = MOVES[m.moves[idx]]?.pp;
+    if (m.pp && m.pp[idx] != null && max != null) m.pp[idx] = Math.min(max, m.pp[idx] + 1);
+  }
   useMove(side, idx, o: { classic?: boolean } = {}) {
     if (this.over) return;
     // classic style: an ally keypress is a TURN, not a real-time action
@@ -2353,7 +2407,7 @@ class Battle {
       // your four moves run independent clocks — weave Q/E/R/F freely; only
       // real commitments (charge-ups, Hyper Beam recharge) lock the body. The
       // enemy keeps a half-second action pace so its AI reads as deliberate.
-      this.lock[side] = (side === "ally" ? 0.15 : 0.5) + (move.tags?.charge ? 0.55 : 0);
+      this.lock[side] = (side === "ally" ? 0.15 : 0.7) + (move.tags?.charge ? 0.55 : 0);
       if (move.tags?.recharge) this.lock[side] += 1.2;
     }
     const atkEnt = this.ent(side), defEnt = this.ent(this.other(side));
@@ -2362,7 +2416,7 @@ class Battle {
     if (side === "ally" && !struggle && !this.possessed) this.game.ui.floatAt(atkEnt.pos().add(V3(0, 0.8, 0)), `${monName(mon)}, ${move.name}!`, "call");
     // possessed: damaging moves go fully spatial — aimed shots and gap-close strikes
     if (spatial) {
-      this.execSpatial(side, move);
+      this.execSpatial(side, move, idx);
       if (side === "enemy") this.lastEnemyMove = move.id;
       return;
     }
@@ -2372,7 +2426,7 @@ class Battle {
       const windup = (move.tags?.charge ? 0.55 : 0) + 0.5;
       this.incoming = { t: windup, max: windup };
     }
-    this.game.fx.playMove(move, atkEnt, defEnt, () => this.resolveHit(side, move));
+    this.game.fx.playMove(move, atkEnt, defEnt, () => this.resolveHit(side, move, { idx }));
     if (side === "enemy") this.lastEnemyMove = move.id;
   }
 
@@ -2434,7 +2488,7 @@ class Battle {
     if (inWater) fx.ringAt(at.clone().setY(w.waterY + 0.06), { col: "#bfe6ff", r0: 0.4, r1: big ? 4 : 2.4, dur: 0.7 });
   }
 
-  resolveHit(side, move, opts: { direct?: boolean; skill?: number } = {}) {
+  resolveHit(side, move, opts: { direct?: boolean; skill?: number; idx?: number } = {}) {
     if (this.over) return;
     const other = this.other(side);
     const atk = this.monOf(side), def = this.monOf(other);
@@ -2450,6 +2504,7 @@ class Battle {
         ui.floatAt(this.allyEnt.pos(), "Dodged it!", "eff");
         this.game.audio.play("counter");
         this.counterT = 4; // the opening: next hit lands harder
+        this.refundPP(side, opts.idx);
         return;
       }
       ui.floatAt(this.allyEnt.pos(), "Too slow!", "miss");
@@ -2463,12 +2518,14 @@ class Battle {
       const noMiss = move.key === "thunder" && (w === "rain" || w === "storm");
       if (!noMiss && Math.random() > (move.acc / 100) * accMult) {
         ui.floatAt(defEnt.pos(), "MISS", "miss");
+        this.refundPP(side, opts.idx);
         return;
       }
     }
     if (opts.direct) this.incoming = null;
     if (move.tags?.reqSleep && !(this.conds[other].slp > 0)) {
       ui.floatAt(defEnt.pos(), "It failed!", "miss");
+      this.refundPP(side, opts.idx);
       return;
     }
     // status moves
@@ -2480,6 +2537,7 @@ class Battle {
     const eff = typeMult(move.type, DEX[def.sp].types);
     if (eff === 0) {
       ui.floatAt(defEnt.pos(), `Doesn't affect ${monName(def)}...`, "weak");
+      this.refundPP(side, opts.idx);
       return;
     }
     let dmg, crit = false;
@@ -2488,7 +2546,7 @@ class Battle {
       ui.floatAt(defEnt.pos(), "One-hit KO! (cheat)", "crit");
     } else if (move.tags?.ohko) {
       dmg = atk.lv >= def.lv ? def.hp : 0;
-      if (!dmg) { ui.floatAt(defEnt.pos(), "It failed!", "miss"); return; }
+      if (!dmg) { ui.floatAt(defEnt.pos(), "It failed!", "miss"); this.refundPP(side, opts.idx); return; }
       ui.floatAt(defEnt.pos(), "One-hit KO!", "crit");
     } else if (move.tags?.fixed !== undefined) {
       const f = move.tags.fixed;
@@ -2564,6 +2622,9 @@ class Battle {
       ui.floatAt(defEnt.pos(), "Protected!", "heal");
       return;
     }
+    // gentler difficulty (for now): the enemy hits you a little softer so the
+    // interactive footwork has room to breathe
+    if (side === "enemy" && move.power > 0) dmg = Math.max(1, Math.floor(dmg * EASE_ENEMY_DMG));
     def.hp = Math.max(0, def.hp - dmg);
     this.bideDmg[other] += dmg;
     setTimeout(() => (this.bideDmg[other] = Math.max(0, this.bideDmg[other] - dmg)), 3000);
@@ -2712,6 +2773,15 @@ class Battle {
         am.hap = clamp((am.hap || 70) + 3, 0, 255);
         this.game.ui.toast(`${monName(am)} gained ${xp} XP!`, "good");
         this.game.handleXp(am, xp);
+      }
+      // Exp. Share: the rest of the party splits a portion of the spoils, so a
+      // benched team still grows. (Can be turned off in the pause menu.)
+      if (this.game.state.settings?.expShare !== false) {
+        const share = Math.max(1, Math.floor(xp * 0.5));
+        for (const pm of this.game.state.party) {
+          if (pm === am || pm.hp <= 0) continue;
+          this.game.handleXp(pm, share);
+        }
       }
       this.game.addTrainerXp(this.type === "trainer" ? 18 : 12);
       if (this.type === "wild") {
@@ -2980,7 +3050,7 @@ export class Game {
       v: SAVE_VERSION, started: false, party: [], boxes: [], money: 600,
       items: { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, nugget: 0 },
       seen: [], caught: [], tl: 1, txp: 0, beaten: {}, badges: [],
-      settings: { vol: 70, sens: 100, ai: "adaptive", style: "arena" }, time: 0.18, spotsFound: [],
+      settings: { vol: 70, sens: 100, ai: "adaptive", style: "fp", followers: true, expShare: true }, time: 0.18, spotsFound: [],
       cheats: { god: false, ohko: false, catchall: false, infpp: false, speed: false },
       lastCenter: null, starter: null, hof: [], repelT: 0, lureT: 0,
       followerUid: null, voucher: false, bike: false, truckKeys: false, vehicle: null,
@@ -3102,6 +3172,46 @@ export class Game {
   giveMon(mon) {
     if (this.state.party.length < 6) { this.state.party.push(mon); return "party"; }
     this.state.boxes.push(mon); return "box";
+  }
+  // ----------------------------------------------------- move management
+  // Every move this species can know at its current level that it hasn't
+  // learned yet — lets the player teach/relearn moves from the party screen.
+  learnableMoves(mon): number[] {
+    const known = new Set(mon.moves);
+    const ids = (DEX[mon.sp].learnset || [])
+      .filter(([l]) => l <= mon.lv)
+      .map(([, id]) => id)
+      .filter((id) => !known.has(id) && MOVES[id]);
+    return [...new Set(ids)];
+  }
+  // Teach a move, replacing the slot if given (and the party is already full).
+  teachMove(mon, moveId, slot: number | null = null) {
+    if (!MOVES[moveId] || mon.moves.includes(moveId)) return false;
+    mon.pp = mon.pp || mon.moves.map((id) => MOVES[id].pp);
+    if (mon.moves.length < 4 && slot == null) {
+      mon.moves.push(moveId);
+      mon.pp.push(MOVES[moveId].pp);
+    } else {
+      const s = slot != null ? slot : mon.moves.length - 1;
+      mon.moves[s] = moveId;
+      mon.pp[s] = MOVES[moveId].pp;
+    }
+    this.audio.play("learn");
+    this.ui.toast(`${monName(mon)} learned ${MOVES[moveId].name}!`, "good");
+    this.ui.updateParty();
+    this.save();
+    return true;
+  }
+  forgetMove(mon, idx: number) {
+    if (mon.moves.length <= 1) { this.ui.toast("A Pokémon can't forget its last move!", "bad"); return false; }
+    const name = MOVES[mon.moves[idx]]?.name || "move";
+    mon.moves.splice(idx, 1);
+    if (mon.pp) mon.pp.splice(idx, 1);
+    this.audio.play("ui");
+    this.ui.toast(`${monName(mon)} forgot ${name}.`, "");
+    this.ui.updateParty();
+    this.save();
+    return true;
   }
   markSeen(sp) {
     if (!this.dexSeen.has(sp)) { this.dexSeen.add(sp); }
@@ -3314,6 +3424,8 @@ export class Game {
   // Default: the lead Pokémon. Pick any party member (or recall it) from the
   // party screen.
   followerMon() {
+    // global opt-out: keep your Pokémon in their Balls on the overworld
+    if (this.state.settings?.followers === false) return null;
     const uid = this.state.followerUid;
     if (uid === "none") return null;
     const chosen = uid ? this.state.party.find((m) => m.uid === uid && m.hp > 0) : null;
@@ -3999,6 +4111,8 @@ export class Game {
       if (mon.moves.includes(move)) continue;
       if (mon.moves.length < 4) {
         mon.moves.push(move);
+        mon.pp = mon.pp || [];
+        mon.pp.push(MOVES[move].pp);          // keep PP array aligned with the new slot
         this.audio.play("learn");
         this.ui.toast(`${monName(mon)} learned ${MOVES[move].name}!`, "good");
       } else {
@@ -4006,6 +4120,7 @@ export class Game {
         if (slot != null && slot >= 0) {
           const old = MOVES[mon.moves[slot]].name;
           mon.moves[slot] = move;
+          if (mon.pp) mon.pp[slot] = MOVES[move].pp;   // fresh PP for the freshly learned move
           this.audio.play("learn");
           this.ui.toast(`Forgot ${old} and learned ${MOVES[move].name}!`, "good");
         } else this.ui.toast(`${monName(mon)} did not learn ${MOVES[move].name}.`, "");
@@ -4305,6 +4420,7 @@ export class Game {
       else if (k === "x") b.tryRun();
       else if (k === " ") b.tryDodge();
       else if (k === "t") b.togglePossess();
+      else if (k === "y") b.cycleStyle();
       return;
     }
     if (k === "e") this.interact();

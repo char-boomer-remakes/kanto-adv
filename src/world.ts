@@ -251,6 +251,7 @@ export class World {
   lamps: { light: THREE.PointLight; mat: any }[];
   windows: any[];
   interiors: AABB[];
+  buildingPads: { minX: number; maxX: number; minZ: number; maxZ: number; g: number; fall: number }[];
   caveDim: number;
   _v: THREE.Vector3;
   spots: Record<string, THREE.Vector3>;
@@ -304,6 +305,7 @@ export class World {
     this.lamps = [];
     this.windows = [];
     this.interiors = [];
+    this.buildingPads = [];           // terrain is flattened to each building's floor + doorstep
     this.caveDim = 0;
     this._v = new THREE.Vector3();
 
@@ -330,9 +332,9 @@ export class World {
     this.centers = [];                // [{id, pos}] Pokemon Center respawn points
 
     this.buildSky();
-    this.buildTerrain();
     this.buildWater();
-    this.buildKanto();
+    this.buildKanto();      // registers building pads (flattened footprints)
+    this.buildTerrain();    // bake the ground AFTER pads exist, so it sits flush
     this.buildProps();
     this.buildBerries();
     this.buildRain();
@@ -446,6 +448,17 @@ export class World {
     // safari pond
     const dp = Math.hypot((x - 10) / 13, (z - 124) / 10);
     if (dp < 1) h = lerp(h, -2.4, smooth(1, 0.55, dp));
+    // building pads: level the ground to each building's floor + doorstep so
+    // they're enterable on slopes (pads are in WORLD space, hence wx/wz here)
+    if (this.buildingPads.length) {
+      for (const pad of this.buildingPads) {
+        const ox = Math.max(pad.minX - wx, 0, wx - pad.maxX);
+        const oz = Math.max(pad.minZ - wz, 0, wz - pad.maxZ);
+        if (ox >= pad.fall || oz >= pad.fall) continue;
+        const dout = Math.hypot(ox, oz);
+        if (dout < pad.fall) h = lerp(h, pad.g, 1 - smooth(0, pad.fall, dout));
+      }
+    }
     // world border mountains
     const b = smooth(252, 295, Math.max(Math.abs(x), Math.abs(z)));
     if (b > 0) h += b * (20 + vnoise(x * 0.05, z * 0.05) * 4);
@@ -745,6 +758,14 @@ export class World {
     g.position.set(x, ground, z);
     this.scene.add(g);
     this.interiors.push({ min: new THREE.Vector3(x - w / 2, ground, z - d / 2), max: new THREE.Vector3(x + w / 2, ground + h, z + d / 2) });
+    // Flatten the terrain to the building's floor across its footprint plus a
+    // doorstep apron out the front (+z) — so it sits flush on any slope and the
+    // doorway is always level enough to walk through.
+    this.buildingPads.push({
+      minX: x - w / 2 - 1.4, maxX: x + w / 2 + 1.4,
+      minZ: z - d / 2 - 1.4, maxZ: z + d / 2 + 5.5,
+      g: ground, fall: 4.5,
+    });
     return g;
   }
 
