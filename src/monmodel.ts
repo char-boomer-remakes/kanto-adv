@@ -182,14 +182,21 @@ function tailPart(parent: THREE.Object3D, s: any, bodyR: number, hipY: number, z
       dir = -dir;
     }
   } else if (kind === "multi") {
+    // Vulpix / Ninetales: a fan of long curling tails sweeping up and back.
     const n = s.tailN || 6;
+    const tm = M(c);
+    const tipM = s.tailTip ? M(s.tailTip) : tm;
     for (let i = 0; i < n; i++) {
-      const a = (i / Math.max(1, n - 1) - 0.5) * 1.6;
-      const t = mesh(sphereG(), M(c), bodyR * 0.17, bodyR * 0.17, bodyR * 0.85);
-      t.position.set(Math.sin(a) * bodyR * 0.5, bodyR * (0.2 + Math.cos(a) * 0.12), -bodyR * 0.7);
-      t.rotation.y = a * 0.7;
-      t.rotation.x = -0.5;
+      const a = (i / Math.max(1, n - 1) - 0.5) * 2.1;       // wide horizontal fan
+      const len = bodyR * (1.2 + (1 - Math.abs(a) / 1.1) * 0.5);
+      const t = mesh(capsG(), tm, bodyR * 0.12, len * 0.5, bodyR * 0.12);
+      t.position.set(Math.sin(a) * bodyR * 0.7, bodyR * (0.55 + Math.cos(a) * 0.2), -bodyR * 0.75);
+      t.rotation.y = a;
+      t.rotation.x = -0.95;                                  // sweep upward
       piv.add(t);
+      const tip = mesh(sphereG(), tipM, bodyR * 0.2, bodyR * 0.2, bodyR * 0.3);
+      tip.position.set(Math.sin(a) * bodyR * 1.05, bodyR * (1.05 + Math.cos(a) * 0.28), -bodyR * 1.15);
+      piv.add(tip);
     }
   } else if (kind === "flame") {
     flameCone(piv, bodyR * 0.3, bodyR * 0.95, 0, bodyR * 0.1, -bodyR * 0.5);
@@ -212,6 +219,16 @@ function tailPart(parent: THREE.Object3D, s: any, bodyR: number, hipY: number, z
     const tip = mesh(sphereG(), M(s.tailTip || c), bodyR * 0.14);
     tip.position.set(0, bodyR * 0.85, -bodyR * 1.4);
     piv.add(tip);
+  } else if (kind === "bolt") {
+    // Raichu: a long thin tail arcing up to a flat lightning-bolt tip.
+    const stalk = mesh(cylG(), M(c), bodyR * 0.1, bodyR * 1.5, bodyR * 0.1);
+    stalk.rotation.x = Math.PI / 2 + 1.05;
+    stalk.position.set(0, bodyR * 0.55, -bodyR * 0.7);
+    piv.add(stalk);
+    const bolt = mesh(boltGeo(), M(s.tailTip || "#efd23f", { dbl: true }), bodyR * 0.85, bodyR * 0.95, bodyR * 0.12);
+    bolt.position.set(0, bodyR * 1.45, -bodyR * 1.0);
+    bolt.rotation.z = 0.2;
+    piv.add(bolt);
   }
   parent.add(piv);
   return piv;
@@ -269,6 +286,60 @@ function leafBlade(c: string, len: number, w: number) {
   const l = mesh(sphereG(), M(c, { dbl: true }), w, len, w * 0.2);
   l.position.y = len * 0.75;
   return l;
+}
+// A low-poly scalloped membrane wing in the XY plane, root at origin,
+// spreading toward +x (outward) and +y (up). Drives Charizard, Aerodactyl,
+// Gyarados-kin, Dragonite, Golbat... a real wing silhouette, not a paddle.
+// A tall, scalloped dragon/bat wing: leading edge sweeps up to a wrist, then
+// three finger tips fan outward with webbed valleys between them. Plane is XY
+// (normal ±z), root at origin, spreading toward +x and +y.
+const WING_OUTLINE = [
+  [0, 0], [0.30, 0.64], [1.04, 0.74], [0.76, 0.34],
+  [0.88, 0.12], [0.55, 0.03], [0.63, -0.17], [0.30, -0.12], [0.05, -0.07],
+];
+function membraneWingGeo() {
+  return G("wing", () => {
+    const s = new THREE.Shape();
+    s.moveTo(WING_OUTLINE[0][0], WING_OUTLINE[0][1]);
+    for (let i = 1; i < WING_OUTLINE.length; i++) s.lineTo(WING_OUTLINE[i][0], WING_OUTLINE[i][1]);
+    s.closePath();
+    return new THREE.ShapeGeometry(s);
+  });
+}
+function membraneWing(c: string, span: number, _scallops = 3, em?: number) {
+  const opts: any = { dbl: true, flat: true };
+  if (em != null) { opts.em = em; opts.emI = 0.25; }
+  return mesh(membraneWingGeo(), M(c, opts), span, span, span);
+}
+// Flat lightning bolt (Raichu / Jolteon tail tips, Pikachu emblem).
+function boltGeo() {
+  return G("bolt", () => {
+    const pts = [[0.35, 1.0], [-0.35, 0.12], [0.04, 0.12], [-0.4, -1.0], [0.32, -0.06], [-0.06, -0.06]];
+    const s = new THREE.Shape();
+    s.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+    s.closePath();
+    return new THREE.ShapeGeometry(s);
+  });
+}
+function clawSet(hand: THREE.Object3D, c: string, r: number, n = 3, reach = 1) {
+  const m = M(c);
+  for (let i = 0; i < n; i++) {
+    const a = (i - (n - 1) / 2) * 0.5;
+    const cl = mesh(coneG(), m, r * 0.42, r * 1.5 * reach, r * 0.42);
+    cl.position.set(Math.sin(a) * r * 0.7, -r * 0.7, r * 0.6 + Math.cos(a) * r * 0.1);
+    cl.rotation.x = 1.5;
+    hand.add(cl);
+  }
+}
+function fangRow(head: THREE.Object3D, c: string, r: number, y: number, z: number, dx: number, len = 1) {
+  const m = M(c);
+  for (const side of [-1, 1]) {
+    const f = mesh(coneG(), m, r * 0.5, r * 1.2 * len, r * 0.5);
+    f.position.set(side * dx, y, z);
+    f.rotation.x = Math.PI;
+    head.add(f);
+  }
 }
 
 // ------------------------------------------------------- animation helpers
@@ -382,6 +453,17 @@ function bQuad(s: any): Built {
   head.add(mesh(sphereG(), M(s.headC || s.body), headR));
   eyePair(head, s, headR * 0.27, headR * 0.3, headR * 0.76, headR * 0.48);
   if (s.snout !== false) snout(head, s.snoutC || s.belly || s.body, headR * 0.42, -headR * 0.16, headR * 0.78, headR * 0.5);
+  if (s.teeth) for (const side of [-1, 1]) {            // Rattata/Raticate incisors
+    const t = mesh(boxG(), M("#fbfbf4"), headR * 0.15, headR * 0.3, headR * 0.1);
+    t.position.set(side * headR * 0.13, -headR * 0.46, headR * 0.95);
+    head.add(t);
+  }
+  if (s.whiskers) for (const side of [-1, 1]) {
+    const wk = mesh(cylG(), M(s.whiskerC || "#e6dcc8"), headR * 0.03, headR * 0.9, headR * 0.03);
+    wk.position.set(side * headR * 0.4, -headR * 0.2, headR * 0.7);
+    wk.rotation.z = side * 1.0; wk.rotation.y = side * 0.3;
+    head.add(wk);
+  }
   if (s.ears) earCone(head, s, headR * (s.earLen || 0.9), headR * 0.32, headR * 0.6, headR * 0.7, s.earTilt ?? 0.45);
   if (s.horn) hornCone(head, s.hornC || "#ece4d4", headR * 0.2, headR * (s.hornLen || 0.85), 0, headR * 0.6, headR * 0.35);
   if (s.mane === "flame") {
@@ -391,32 +473,55 @@ function bQuad(s: any): Built {
     const m = mesh(sphereG(), M(s.maneC || "#f2e8d4"), headR * 1.02, headR * 0.92, headR * 0.78);
     m.position.set(0, -headR * 0.05, -headR * 0.5);
     head.add(m);
+    if (s.ruff) {                                     // Arcanine's billowing chest ruff
+      const r1 = mesh(sphereG(), M(s.maneC || "#f2e8d4"), bodyR * 0.95, bodyR * 0.85, bodyR * 0.7);
+      r1.position.set(0, bodyR * 0.5, bodyR * 1.15);
+      torso.add(r1);
+    }
   }
   torso.add(head);
   const legs = legSet(torso, s.legC || s.body, bodyR, legLen, 0.55, bodyR * 0.8, -bodyR * 0.8);
   const tail = tailPart(torso, s, bodyR, -bodyR * 0.05, -bodyR * 1.3);
+  if (s.stripes2) for (let i = 0; i < s.stripes2; i++) {   // Arcanine's dark bands over the back
+    const band = mesh(boxG(), M(s.stripeC || "#3a2a22"), bodyR * 2.0, bodyR * 0.12, bodyR * 0.22);
+    band.position.set(0, bodyR * 0.78, bodyR * (0.7 - i * 0.55));
+    band.rotation.x = 0.1;
+    torso.add(band);
+  }
   if (s.spikes) backSpikes(torso, s.spikeC || "#ece4d4", s.spikes, bodyR * 0.16, bodyR, bodyR * 0.1);
   if (s.shell) shellBack(torso, s, bodyR * 0.95, bodyR * 0.3);
   if (s.bulb) {
-    const b = mesh(sphereG(), M(s.bulb), bodyR * 0.62, bodyR * 0.66, bodyR * 0.62);
-    b.position.set(0, bodyR * 0.62, -bodyR * 0.35);
+    const bR = bodyR * (s.bulbR || 0.66);
+    const bZ = -bodyR * 0.24;
+    const bY = bodyR * 0.6 + bR * 0.42;
+    const b = mesh(sphereG(), M(s.bulb, { flat: false }), bR, bR * 1.06, bR);
+    b.position.set(0, bY, bZ);
     torso.add(b);
+    if (s.bulbSpots) for (let i = 0; i < 5; i++) {     // Bulbasaur's darker dappling
+      const a = (i / 5) * Math.PI * 2 + 0.4;
+      const sp = mesh(sphereG(), M(s.bulbSpots), bR * 0.22, bR * 0.1, bR * 0.22);
+      sp.position.set(bZ * 0 + Math.cos(a) * bR * 0.7, bY + bR * 0.6, bZ + Math.sin(a) * bR * 0.55);
+      torso.add(sp);
+    }
     if (s.bulbLeaves) for (let i = 0; i < s.bulbLeaves; i++) {
       const a = (i / s.bulbLeaves) * Math.PI * 2;
-      const l = leafBlade(s.leafC || "#3f9e54", bodyR * 0.7, bodyR * 0.3);
-      l.position.set(Math.cos(a) * bodyR * 0.45, bodyR * 0.62, -bodyR * 0.35 + Math.sin(a) * bodyR * 0.45);
-      l.rotation.z = Math.cos(a) * 0.9; l.rotation.x = Math.sin(a) * 0.9;
+      const l = leafBlade(s.leafC || "#3f9e54", bR * 1.15, bR * 0.46);
+      l.position.set(Math.cos(a) * bR * 0.5, bY + bR * 0.5, bZ + Math.sin(a) * bR * 0.5);
+      l.rotation.z = Math.cos(a) * 0.95; l.rotation.x = Math.sin(a) * 0.95;
       torso.add(l);
     }
     if (s.flower) {
-      const fl = pivot(0, bodyR * 1.05, -bodyR * 0.35);
-      fl.add(mesh(sphereG(), M("#f6cf3d"), bodyR * 0.26));
+      // Venusaur's bloom — raised and tipped up-and-forward so it reads head-on.
+      const fl = pivot(0, bY + bR * 0.62, bZ + bodyR * 0.1);
+      fl.rotation.x = -0.36;
+      fl.add(mesh(sphereG(), M("#f6cf3d", { flat: false }), bodyR * 0.4));
       const pm = M(s.flowerC || "#e85a78", { dbl: true });
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * Math.PI * 2;
-        const petal = mesh(sphereG(), pm, bodyR * 0.45, bodyR * 0.1, bodyR * 0.32);
-        petal.position.set(Math.cos(a) * bodyR * 0.5, 0.02, Math.sin(a) * bodyR * 0.5);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const petal = mesh(sphereG(), pm, bodyR * 0.42, bodyR * 0.14, bodyR * 0.6);
+        petal.position.set(Math.cos(a) * bodyR * 0.62, bodyR * 0.06, Math.sin(a) * bodyR * 0.62);
         petal.rotation.y = -a;
+        petal.rotation.x = 0.5;
         fl.add(petal);
       }
       torso.add(fl);
@@ -459,13 +564,26 @@ function bBiped(s: any): Built {
     torso.add(b);
   }
   const headR = bodyR * (s.headR || 0.82);
-  const head = pivot(0, bodyR * 1.05 + headR * 0.55, bodyR * 0.05);
+  const neckLen = bodyR * (s.neck || 0);
+  const head = pivot(0, bodyR * 1.05 + headR * 0.55 + neckLen, bodyR * 0.05 + neckLen * 0.1);
+  if (neckLen > 0.01) {
+    const nk = mesh(capsG(), M(s.neckC || s.body), bodyR * 0.32, neckLen * 0.5, bodyR * 0.32);
+    nk.position.set(0, bodyR * 1.0 + neckLen * 0.45, bodyR * 0.05 + neckLen * 0.05);
+    torso.add(nk);
+  }
   head.add(mesh(sphereG(), M(s.headC || s.body), headR));
   eyePair(head, s, headR * 0.26, headR * 0.22, headR * 0.76, headR * 0.45);
   if (s.snout) snout(head, s.snoutC || s.body, headR * 0.4, -headR * 0.2, headR * 0.8, headR * (s.snoutLen || 0.45));
   if (s.beak) beak(head, s.beakC || "#e8b84a", headR * 0.34, -headR * 0.1, headR * 0.7, headR * 0.8);
   if (s.ears) earCone(head, s, headR * (s.earLen || 1), headR * 0.3, headR * 0.58, headR * 0.68, s.earTilt ?? 0.5);
-  if (s.horn) hornCone(head, s.hornC || "#ece4d4", headR * 0.18, headR * 0.7, 0, headR * 0.72, headR * 0.2);
+  if (s.horn) hornCone(head, s.hornC || "#ece4d4", headR * (s.hornR || 0.18), headR * (s.hornLen || 0.7), 0, headR * 0.72, headR * 0.2);
+  if (s.hornBack) for (const side of [-1, 1]) {
+    const h = mesh(coneG(), M(s.hornC || "#efe6d4"), headR * 0.15, headR * (s.hornLen || 0.95), headR * 0.15);
+    h.position.set(side * headR * 0.36, headR * 0.66, -headR * 0.42);
+    h.rotation.x = 0.95; h.rotation.z = side * 0.22;
+    head.add(h);
+  }
+  if (s.fangs) fangRow(head, "#fbfbf4", headR * 0.5, -headR * 0.46, headR * 0.74, headR * 0.3, s.fangLen || 1);
   if (s.headFlame) flameCone(head, headR * 0.4, headR * 1.1, 0, headR * 0.75, 0);
   if (s.hair) {
     const h = mesh(sphereG(), M(s.hair), headR * 0.95, headR * 0.6, headR * 0.95);
@@ -476,6 +594,12 @@ function bBiped(s: any): Built {
     const c = mesh(sphereG(), M(s.cheeks, { flat: false }), headR * 0.2, headR * 0.2, headR * 0.08);
     c.position.set(side * headR * 0.62, -headR * 0.12, headR * 0.72);
     head.add(c);
+  }
+  if (s.curl) {                                   // Clefairy/Clefable forehead curl
+    const cu = mesh(sphereG(), M(s.headC || s.body), headR * 0.17, headR * 0.36, headR * 0.16);
+    cu.position.set(0, headR * 0.96, headR * 0.42);
+    cu.rotation.x = -0.7;
+    head.add(cu);
   }
   if (s.coin) {
     const c = mesh(cylG(), M("#f6cf3d", { em: 0xaa8800, emI: 0.25 }), headR * 0.24, headR * 0.07, headR * 0.24);
@@ -542,19 +666,55 @@ function bBiped(s: any): Built {
     g.position.y = -bodyR * 1.0;
     a.add(g);
   }
+  if (s.claws) for (const a of arms) {
+    const hand = pivot(0, -bodyR * (s.armLen || 0.95) * 0.92, 0);
+    clawSet(hand, s.clawC || "#f2ecdc", bodyR * 0.34, s.clawN || 3, s.clawLen || 1);
+    a.add(hand);
+  }
+  if (s.spoons) for (const a of arms) {
+    const handY = -bodyR * (s.armLen || 0.95) * 0.92;
+    const handle = mesh(cylG(), M("#e2e6ec", { flat: false }), bodyR * 0.05, bodyR * 0.9, bodyR * 0.05);
+    handle.position.y = handY - bodyR * 0.45;
+    const bowl = mesh(sphereG(), M("#e2e6ec", { flat: false }), bodyR * 0.16, bodyR * 0.1, bodyR * 0.22);
+    bowl.position.set(0, handY - bodyR * 0.95, 0);
+    a.add(handle, bowl);
+  }
+  if (s.bone && arms.length) {
+    const grp = pivot(0, -bodyR * (s.armLen || 0.95) * 0.95, bodyR * 0.25);
+    grp.rotation.x = 0.6;
+    grp.add(mesh(cylG(), M(s.boneC || "#efe7d2"), bodyR * 0.08, bodyR * 0.95, bodyR * 0.08));
+    for (const e of [-1, 1]) {
+      for (const o of [-1, 1]) {
+        const k = mesh(sphereG(), M(s.boneC || "#efe7d2"), bodyR * 0.13);
+        k.position.set(o * bodyR * 0.13, e * bodyR * 0.48, 0);
+        grp.add(k);
+      }
+    }
+    arms[0].add(grp);
+  }
   // wings
   const wings: THREE.Object3D[] = [];
   if (s.wings) {
-    const wc = M(s.wingC || "#7ab8d8", s.wings === "insect" ? { op: 0.5, dbl: true, flat: false } : { dbl: true });
     for (const side of [-1, 1]) {
-      const w = pivot(side * bodyR * 0.55, bodyR * 0.62, -bodyR * 0.42);
+      const w = pivot(side * bodyR * 0.5, bodyR * 0.6, -bodyR * 0.48);
       const span = bodyR * (s.wingSpan || 1.5);
-      const wing = s.wings === "insect"
-        ? mesh(sphereG(), wc, span, span * 0.38, bodyR * 0.04)
-        : mesh(sphereG(), wc, span, span * 0.55, bodyR * 0.08);
-      wing.position.x = side * span * 0.85;
-      wing.rotation.z = side * 0.15;
-      w.add(wing);
+      if (s.wings === "insect") {
+        const wing = mesh(sphereG(), M(s.wingC || "#e8f0ff", { op: 0.5, dbl: true, flat: false }), span, span * 0.4, bodyR * 0.04);
+        wing.position.x = side * span * 0.85;
+        wing.rotation.z = side * 0.18;
+        w.add(wing);
+      } else if (s.wings === "round") {
+        // small vestigial leathery wings — Clefable, Dragonite
+        const wing = mesh(sphereG(), M(s.wingC || "#f0e0e8", { dbl: true }), span, span * 0.72, bodyR * 0.06);
+        wing.position.x = side * span * 0.78;
+        wing.rotation.z = side * 0.28;
+        w.add(wing);
+      } else {
+        const wing = membraneWing(s.wingC || "#7ab8d8", span, s.wingScallops || 3);
+        wing.scale.x *= side;
+        w.add(wing);
+        w.rotation.y = side * (s.wingRake ?? 0.45);   // splay outward + face front
+      }
       torso.add(w);
       wings.push(w);
     }
@@ -563,13 +723,24 @@ function bBiped(s: any): Built {
   if (s.shell) {
     shellBack(torso, s, bodyR * 0.92, bodyR * 0.05, -bodyR * 0.55);
     if (s.cannons) for (const side of [-1, 1]) {
-      const c = mesh(cylG(), M("#aeb6c2"), bodyR * 0.16, bodyR * 0.7, bodyR * 0.16);
-      c.position.set(side * bodyR * 0.5, bodyR * 0.85, -bodyR * 0.3);
-      c.rotation.x = 1.1;
-      torso.add(c);
+      // Blastoise's signature: chunky water cannons emerging from the shell
+      // over each shoulder, barrels jutting up-and-FORWARD so they read head-on.
+      const grp = pivot(side * bodyR * 0.5, bodyR * 0.46, -bodyR * 0.38);
+      grp.rotation.x = 0.74;          // mostly up, leaning forward
+      grp.rotation.z = side * 0.22;   // splay outward
+      const barrel = mesh(cylG(), M(s.cannonC || "#8a96a4"), bodyR * 0.27, bodyR * 1.5, bodyR * 0.27);
+      barrel.position.y = bodyR * 0.66;
+      grp.add(barrel);
+      const collar = mesh(cylG(), M("#6a7480"), bodyR * 0.32, bodyR * 0.2, bodyR * 0.32);
+      collar.position.y = bodyR * 0.24;
+      grp.add(collar);
+      const muzzle = mesh(cylG(), M("#3a424c"), bodyR * 0.3, bodyR * 0.34, bodyR * 0.3);
+      muzzle.position.y = bodyR * 1.4;
+      grp.add(muzzle);
+      torso.add(grp);
     }
   }
-  if (s.spikes) backSpikes(torso, s.spikeC || s.body, s.spikes, bodyR * 0.14, bodyR, bodyR * 0.3);
+  if (s.spikes) backSpikes(torso, s.spikeC || s.body, s.spikes, bodyR * (s.spikeSize || 0.14), bodyR, bodyR * 0.3);
   if (s.pouch) {
     const p = mesh(sphereG(), M(s.pouchC || s.belly || s.body), bodyR * 0.55, bodyR * 0.5, bodyR * 0.4);
     p.position.set(0, -bodyR * 0.25, bodyR * 0.42);
@@ -592,7 +763,7 @@ function bBiped(s: any): Built {
     lk.rotation.z = 0.5;
     torso.add(lk);
   }
-  const H = bodyY + bodyR * 1.05 + headR * 1.6 + (s.horn ? headR * 0.4 : 0);
+  const H = bodyY + bodyR * 1.05 + headR * 1.6 + neckLen + (s.horn ? headR * 0.4 : 0);
   root.scale.setScalar(1 / H);
   const seed = Math.random() * 9;
   return {
@@ -647,13 +818,30 @@ function bBird(s: any): Built {
     eyePair(h, s, headR * 0.26, headR * 0.2, headR * 0.7, headR * 0.45);
     beak(h, s.beakC || "#e8b84a", headR * 0.3, -headR * 0.05, headR * 0.75, headR * (s.beakLen || 0.8));
     if (s.crest) {
-      const cm = M(s.crestC || "#e85a4a");
-      for (let c = 0; c < (s.crestN || 1); c++) {
-        const cr = mesh(sphereG(), cm, headR * 0.14, headR * (0.6 + c * 0.1), headR * 0.3);
-        cr.position.set(0, headR * 0.75, -headR * 0.15 - c * headR * 0.22);
-        cr.rotation.x = -0.5 - c * 0.25;
+      // a swept-back plume: each feather longer and angled further back,
+      // so Pidgey's tuft grows into Pidgeot's flowing crest.
+      const cm = M(s.crestC || "#e85a4a", { dbl: true });
+      const cn = s.crestN || 1;
+      for (let c = 0; c < cn; c++) {
+        const fan = cn > 1 ? (c / (cn - 1) - 0.5) : 0;       // spread side to side
+        const len = headR * (0.62 + c * 0.34) * (s.crestLen || 1);
+        const cr = mesh(sphereG(), cm, headR * 0.13, len, headR * 0.34);
+        cr.position.set(fan * headR * 0.42, headR * (0.7 + c * 0.12), -headR * (0.1 + c * 0.18));
+        cr.rotation.x = -0.7 - c * 0.32;
+        cr.rotation.z = fan * 0.5;
         h.add(cr);
       }
+    }
+    if (s.comb) {                                            // Fearow's red nape crest + brow
+      const cm2 = M(s.combC || "#d83a3a", { dbl: true });
+      const brow = mesh(coneG(), cm2, headR * 0.16, headR * 1.0, headR * 0.16);
+      brow.position.set(0, headR * 0.62, headR * 0.5);
+      brow.rotation.x = 0.5;
+      h.add(brow);
+      const nape = mesh(coneG(), cm2, headR * 0.16, headR * 0.85, headR * 0.16);
+      nape.position.set(0, headR * 0.5, -headR * 0.45);
+      nape.rotation.x = -0.7;
+      h.add(nape);
     }
     neckP.add(h);
     torso.add(neckP);
@@ -678,13 +866,16 @@ function bBird(s: any): Built {
       wings.push(w);
     }
   }
-  // tail feathers
+  // tail feathers — a fanned spray; longer/wider species get a fuller plume
   if (s.tailFeathers !== false) {
     const tm = M(s.tailC || s.body, { dbl: true });
-    for (let i = -1; i <= 1; i++) {
-      const tf = mesh(sphereG(), tm, bodyR * 0.16, bodyR * 0.1, bodyR * (s.tailLen || 0.9));
-      tf.position.set(i * bodyR * 0.22, bodyR * 0.1, -bodyR * (1.0 + Math.abs(i) * -0.12));
-      tf.rotation.y = i * 0.3;
+    const tn = s.tailN || 1;
+    const tlen = s.tailLen || 0.9;
+    for (let i = -tn; i <= tn; i++) {
+      const f = tn > 0 ? i / tn : 0;
+      const tf = mesh(sphereG(), tm, bodyR * 0.15, bodyR * 0.1, bodyR * tlen * (1 - Math.abs(f) * 0.18));
+      tf.position.set(f * bodyR * 0.5, bodyR * 0.1, -bodyR * 1.0);
+      tf.rotation.y = f * 0.55;
       tf.rotation.x = 0.35;
       torso.add(tf);
     }
@@ -755,6 +946,7 @@ function bSerpent(s: any): Built {
     head.add(hd);
   }
   if (s.horn) hornCone(head, s.hornC || "#ece4d4", headR * 0.18, headR * 0.8, 0, headR * 0.75, 0);
+  if (s.fangs) fangRow(head, "#fbfbf4", headR * 0.45, -headR * 0.34, headR * 0.72, headR * 0.3, s.fangLen || 1.1);
   if (s.earFins) earCone(head, { ...s, earC: s.finC || s.body }, headR * 0.6, headR * 0.25, headR * 0.6, headR * 0.4, 1.1);
   if (s.barbels) for (const side of [-1, 1]) {
     const b = mesh(cylG(), M(s.barbelC || "#f0e8d8"), headR * 0.06, headR * 1.1, headR * 0.06);
@@ -768,6 +960,16 @@ function bSerpent(s: any): Built {
     segs[i].add(f);
   }
   segs[0].add(head);
+  if (s.orbs) {                                  // Dragonair's serene blue orbs
+    const om = M(s.orbC || "#7ab8f0", { em: s.orbC || "#5a98d8", emI: 0.3, flat: false });
+    const neckOrb = mesh(sphereG(), om, headR * 0.4);
+    neckOrb.position.set(0, -headR * 0.12, -headR * 0.5);
+    head.add(neckOrb);
+    const last = segs[segs.length - 1];
+    const to = mesh(sphereG(), om, r0 * 0.42);
+    to.position.set(0, r0 * 0.55, -r0 * 0.3);
+    last.add(to);
+  }
   const totalH = topY + headR * 2;
   root.scale.setScalar(1 / Math.max(totalH, 0.8));
   const seed = Math.random() * 9;
@@ -1695,44 +1897,44 @@ function bMound(s: any): Built {
 // One line per Pokémon: archetype + palette + signature parts.
 // Colors approximate the classic Gen 1 palette.
 const S: Record<number, any> = {
-  1:  { arch: "quad", body: "#56b08a", belly: "#7accaa", headR: 0.95, bulb: "#3f8e5e", ears: true, earLen: 0.5 },
-  2:  { arch: "quad", body: "#4aa088", fat: 1.15, bulb: "#d86a88", bulbLeaves: 4, ears: true, earLen: 0.5 },
-  3:  { arch: "quad", body: "#3f937c", fat: 1.35, bulb: "#3f8e5e", flower: true, flowerC: "#e85a78", bulbLeaves: 5, ears: true, earLen: 0.45 },
-  4:  { arch: "biped", body: "#ff9d54", belly: "#ffe2a8", tail: "thick", tailC: "#ff9d54", tailFlame: true },
-  5:  { arch: "biped", body: "#e8694a", belly: "#ffe2a8", fat: 1.1, tail: "thick", tailFlame: true, horn: true },
-  6:  { arch: "biped", body: "#ff8c42", belly: "#ffd89a", fat: 1.25, wings: "membrane", wingC: "#3f7e9e", wingSpan: 1.8, tail: "thick", tailFlame: true, horn: true },
-  7:  { arch: "biped", body: "#74b9e0", belly: "#f6e2b0", shell: "#b97f47", shellRim: "#f0e6c8", tail: "fluff", tailC: "#74b9e0" },
-  8:  { arch: "biped", body: "#8aa8d8", belly: "#f6e2b0", fat: 1.1, shell: "#a8764a", shellRim: "#e8dcc0", ears: true, earLen: 0.5, tail: "fluff", tailC: "#c8d8f0" },
-  9:  { arch: "biped", body: "#7494c8", belly: "#f0e0b8", fat: 1.3, shell: "#8a6a44", shellRim: "#e0d4b8", cannons: true, tail: "fluff" },
+  1:  { arch: "quad", body: "#5fbf9b", belly: "#a6e3c4", headR: 0.98, legLen: 0.66, fat: 1.05, bulb: "#5a9e6a", bulbR: 0.92, bulbSpots: "#3c7a52", bulbLeaves: 3, leafC: "#56a85e", ears: true, earLen: 0.34, earTilt: 0.74 },
+  2:  { arch: "quad", body: "#54b096", belly: "#a6e3c4", fat: 1.2, legLen: 0.7, bulb: "#e07a96", bulbR: 0.8, bulbLeaves: 5, leafC: "#43955a", ears: true, earLen: 0.36, earTilt: 0.72 },
+  3:  { arch: "quad", body: "#46a085", belly: "#9adcc0", fat: 1.5, legLen: 0.84, bulb: "#3f8e5e", bulbR: 0.96, flower: true, flowerC: "#e8556f", bulbLeaves: 6, leafC: "#3f9e54", ears: true, earLen: 0.3, earTilt: 0.72 },
+  4:  { arch: "biped", body: "#f59b54", belly: "#fbe6b4", tail: "thick", tailC: "#f59b54", tailFlame: true, snout: true, snoutC: "#f59b54", snoutLen: 0.3 },
+  5:  { arch: "biped", body: "#e8694a", belly: "#fbe0b0", fat: 1.1, neck: 0.28, tail: "thick", tailC: "#e8694a", tailFlame: true, horn: true, claws: true, snout: true, snoutC: "#e8694a", snoutLen: 0.4 },
+  6:  { arch: "biped", body: "#f0883c", belly: "#f7d49a", fat: 1.2, neck: 0.8, neckC: "#f7d49a", wings: "membrane", wingC: "#2f6f8f", wingSpan: 2.5, wingRake: 0.5, tail: "thick", tailC: "#f0883c", tailFlame: true, hornBack: true, hornLen: 1.1, claws: true, clawN: 3, snout: true, snoutC: "#f0883c", snoutLen: 0.55 },
+  7:  { arch: "biped", body: "#73bce4", belly: "#f3e3b3", shell: "#b27a44", shellRim: "#efe6c6", tail: "fluff", tailC: "#73bce4" },
+  8:  { arch: "biped", body: "#8aa8d8", belly: "#f3e3b3", fat: 1.1, shell: "#a8764a", shellRim: "#e8dcc0", ears: true, earLen: 0.5, tail: "fluff", tailC: "#c8d8f0", tailTip: "#f0f4ff" },
+  9:  { arch: "biped", body: "#6f93c6", belly: "#eadcb4", fat: 1.32, shell: "#7d5f3e", shellRim: "#d8ccae", cannons: true, cannonC: "#8d99a7", tail: "fluff" },
   10: { arch: "larva", body: "#8ed35f", belly: "#d8f0a8", headC: "#7ac84f", antenna: true, eye: "#1c1c26" },
   11: { arch: "cocoon", body: "#9ed05f" },
   12: { arch: "wingbug", body: "#7a6ab8", headC: "#8a7ac8", wingC: "#f8f8ff", eye: "#d04848", wingSpan: 2.0 },
   13: { arch: "larva", body: "#e8b84a", belly: "#f8e0a0", horn: true },
   14: { arch: "cocoon", body: "#e8c84a", fat: 0.62 },
   15: { arch: "wingbug", body: "#f0d04a", headC: "#f0d04a", wingC: "#f0f0f8", needles: true, stinger: true, wingSpan: 1.8 },
-  16: { arch: "bird", body: "#c9a06a", belly: "#f0dcb8", wingC: "#b58a52", crest: true, crestC: "#7a5a3a" },
-  17: { arch: "bird", body: "#c98a5a", belly: "#f0dcb8", fat: 1.15, crest: true, crestN: 2, crestC: "#e85a4a" },
-  18: { arch: "bird", body: "#d09a62", belly: "#f6e4c0", fat: 1.3, crest: true, crestN: 3, crestC: "#f0c84a", neck: 0.6 },
-  19: { arch: "quad", body: "#b88ad0", belly: "#f0e4d8", ears: true, earLen: 1.1, tail: "cone", tailC: "#d8b8e8", snout: true },
-  20: { arch: "quad", body: "#c9874f", belly: "#f0e0c8", fat: 1.2, ears: true, tail: "cone", snout: true },
-  21: { arch: "bird", body: "#b06a4a", belly: "#e8d0b0", wingC: "#8a4a3a", crest: true, crestC: "#d84848" },
-  22: { arch: "bird", body: "#b8744f", belly: "#f0d8b8", fat: 1.2, neck: 1.0, beakLen: 1.3, crest: true, crestC: "#d84848" },
+  16: { arch: "bird", body: "#c9a06a", belly: "#f0dcb8", wingC: "#b58a52", crest: true, crestN: 1, crestC: "#9a6a3a", crestLen: 0.8 },
+  17: { arch: "bird", body: "#c98a5a", belly: "#f0dcb8", fat: 1.15, crest: true, crestN: 2, crestC: "#e85a4a", crestLen: 1.2, tailN: 1, tailC: "#d8546a", tailLen: 1.1 },
+  18: { arch: "bird", body: "#d09a62", belly: "#f6e4c0", fat: 1.32, crest: true, crestN: 3, crestC: "#f6c84a", crestLen: 1.7, neck: 0.7, tailN: 2, tailLen: 1.7, tailC: "#e85a6a", wingSpan: 1.6 },
+  19: { arch: "quad", body: "#a878c8", belly: "#f0e4d8", ears: true, earLen: 1.0, tail: "thin", tailC: "#d8b8e8", snout: true, teeth: true, whiskers: true },
+  20: { arch: "quad", body: "#c9874f", belly: "#f0e0c8", fat: 1.22, legLen: 1.05, ears: true, earLen: 0.7, tail: "thin", tailC: "#e8c8a0", snout: true, teeth: true, whiskers: true },
+  21: { arch: "bird", body: "#a98a6a", belly: "#e8dcc4", wingC: "#7a5a44", comb: true, combC: "#c43838", beakLen: 1.05, beakC: "#e8c060", tailN: 1, tailC: "#7a5a44" },
+  22: { arch: "bird", body: "#b08864", belly: "#f0e2c8", fat: 1.22, neck: 1.6, beakLen: 1.7, beakC: "#e8c060", comb: true, combC: "#d23030", wingC: "#8a6a4a", tailN: 1, tailLen: 1.2, tailC: "#8a6a4a" },
   23: { arch: "serpent", body: "#c97fd0", belly: "#f0d8a0", segs: 6 },
-  24: { arch: "serpent", body: "#8a5ab8", belly: "#d0b8e8", segs: 7, fat: 1.25, hood: true, hoodC: "#7a4aa8" },
+  24: { arch: "serpent", body: "#8a5ab8", belly: "#d0b8e8", segs: 7, fat: 1.3, hood: true, hoodC: "#7a4aa8", fangs: true, headR: 1.3 },
   25: { arch: "biped", body: "#ffd23d", belly: "#ffe9a0", cheeks: "#e8483a", ears: true, earLen: 1.5, earTip: "#1c1c26", earTilt: 0.35, tail: "zigzag", tailC: "#c8932a" },
-  26: { arch: "biped", body: "#f0a030", belly: "#f8d8a0", fat: 1.1, cheeks: "#f8e858", ears: true, earLen: 1.1, earC: "#c87820", tail: "zigzag", tailC: "#7a5a2a" },
+  26: { arch: "biped", body: "#ef9a2e", belly: "#f4d98a", fat: 1.12, cheeks: "#f4d84a", ears: true, earLen: 0.78, earC: "#7a4a1a", earTilt: 0.7, tail: "bolt", tailC: "#9a6a2a", tailTip: "#9a6a2a" },
   27: { arch: "quad", body: "#e8d088", belly: "#f8f0d8", fat: 1.05, ears: true, earLen: 0.6, snout: true },
   28: { arch: "quad", body: "#d8b868", belly: "#f0e4c0", fat: 1.15, spikes: 5, spikeC: "#8a6a3a", ears: true, earLen: 0.55 },
   29: { arch: "quad", body: "#9fc4e8", ears: true, earLen: 1.0, horn: true, hornLen: 0.5, snout: true },
   30: { arch: "quad", body: "#7aa8d8", fat: 1.2, ears: true, horn: true, hornLen: 0.6, spikes: 2 },
-  31: { arch: "biped", body: "#6a94c8", belly: "#e8e0c8", fat: 1.35, ears: true, horn: true, spikes: 3 },
-  32: { arch: "quad", body: "#d089c8", ears: true, earLen: 1.0, horn: true, hornLen: 0.7, snout: true },
-  33: { arch: "quad", body: "#c070b8", fat: 1.2, ears: true, horn: true, hornLen: 0.85, spikes: 2 },
-  34: { arch: "biped", body: "#b868b0", belly: "#e8d8e0", fat: 1.35, ears: true, horn: true, spikes: 3, tail: "thick" },
+  31: { arch: "biped", body: "#5f8cc4", belly: "#dcdcc0", fat: 1.4, ears: true, earLen: 0.7, horn: true, hornR: 0.22, hornLen: 0.85, spikes: 5, spikeSize: 0.2, spikeC: "#cfe0ee", tail: "thick", tailC: "#5f8cc4", snout: true },
+  32: { arch: "quad", body: "#d089c8", belly: "#f0e0ee", ears: true, earLen: 1.0, horn: true, hornLen: 0.8, spikes: 2, spikeC: "#e8d4e8", snout: true },
+  33: { arch: "quad", body: "#c070b8", belly: "#ecd8ea", fat: 1.22, ears: true, horn: true, hornLen: 1.0, spikes: 3, spikeC: "#e8d0e6", snout: true },
+  34: { arch: "biped", body: "#b260aa", belly: "#e8d8e0", fat: 1.4, ears: true, earLen: 0.7, horn: true, hornR: 0.26, hornLen: 1.35, hornC: "#efe6d4", spikes: 5, spikeSize: 0.22, spikeC: "#e8d4e8", tail: "thick", tailC: "#b260aa", snout: true },
   35: { arch: "biped", body: "#f8c8d8", belly: "#fce4ee", fat: 1.1, ears: true, earLen: 0.8, earC: "#d8a0b8", tail: "fluff", curl: true },
-  36: { arch: "biped", body: "#f0b8cc", belly: "#fce4ee", fat: 1.2, ears: true, earLen: 1.1, tail: "fluff", wings: "membrane", wingC: "#f8d8e8", wingSpan: 0.9 },
-  37: { arch: "quad", body: "#d07a4a", belly: "#f0c898", mane: true, maneC: "#f0a868", tail: "multi", tailN: 6, tailC: "#e89858", ears: true },
-  38: { arch: "quad", body: "#f0e0b8", belly: "#f8f0d8", fat: 1.1, mane: true, maneC: "#f8ecd0", tail: "multi", tailN: 9, tailC: "#f0e4c0", ears: true, earLen: 1.0 },
+  36: { arch: "biped", body: "#f0b8cc", belly: "#fce4ee", fat: 1.22, ears: true, earLen: 1.0, earC: "#d89ab0", curl: true, tail: "fluff", tailC: "#f0b8cc", wings: "round", wingC: "#f6d0de", wingSpan: 0.85 },
+  37: { arch: "quad", body: "#c97444", belly: "#e8b07a", mane: true, maneC: "#e8a060", tail: "multi", tailN: 6, tailC: "#d88a52", tailTip: "#e8a868", ears: true, earLen: 0.9 },
+  38: { arch: "quad", body: "#f3e6c2", belly: "#fbf4e0", fat: 1.05, legLen: 1.1, mane: true, maneC: "#fbf2dc", tail: "multi", tailN: 9, tailC: "#f0e4c0", tailTip: "#e8d8b0", ears: true, earLen: 1.1, eye: "#c0392b" },
   39: { arch: "blob", body: "#f8c0d8", eye: "#58b8e8", eyeR: 0.2, ears: true, earLen: 0.55, curl: true },
   40: { arch: "blob", body: "#f0a8c8", fat: 1.15, eye: "#58b8e8", ears: true, earLen: 0.9, squat: 1.15 },
   41: { arch: "bat", body: "#6a7ae0", wingIn: "#b87ad0", noEyes: true, mouth: true, tailWisps: true },
@@ -1752,14 +1954,14 @@ const S: Record<number, any> = {
   55: { arch: "biped", body: "#4a9ad0", belly: "#7ab8e0", fat: 0.95, legLen: 1.15, beak: true, beakC: "#e8e4d8", gem: "#d84848", tail: "cone" },
   56: { arch: "blob", body: "#f0e8e0", ears: true, earC: "#d8c8b8", squat: 1.0, eyeR: 0.15 },
   57: { arch: "blob", body: "#e8dcd0", fat: 1.25, ears: true, squat: 1.0 },
-  58: { arch: "quad", body: "#f0884a", belly: "#f8d8a8", mane: true, maneC: "#f6e8c8", tail: "fluff", tailC: "#f6e8c8", ears: true },
-  59: { arch: "quad", body: "#e87a3f", belly: "#f6e0b8", fat: 1.3, legLen: 1.2, mane: true, maneC: "#f0e0c0", tail: "fluff", tailC: "#f0e0c0", ears: true },
+  58: { arch: "quad", body: "#f0884a", belly: "#f8d8a8", mane: true, maneC: "#f6e8c8", ruff: true, stripes2: 2, stripeC: "#5a3a26", tail: "fluff", tailC: "#f6e8c8", ears: true },
+  59: { arch: "quad", body: "#ef7a36", belly: "#f6e0b8", fat: 1.32, legLen: 1.25, mane: true, maneC: "#f4ead2", ruff: true, stripes2: 3, stripeC: "#33241c", tail: "fluff", tailC: "#f4ead2", ears: true, earLen: 0.7 },
   60: { arch: "biped", body: "#5a7ad0", belly: "#f8f8f0", fat: 1.05, headR: 1.05, tail: "fin", tailC: "#f8f8f0", legR: 0.14 },
   61: { arch: "biped", body: "#4a6ac0", belly: "#f0f0e8", fat: 1.2, gloves: "#f0f0e8" },
   62: { arch: "biped", body: "#3f5ab0", belly: "#e8e8e0", fat: 1.35, gloves: "#e8e8e0" },
   63: { arch: "biped", body: "#e8c84a", belly: "#c89838", tail: "cone", tailC: "#c89838", snout: true, snoutLen: 0.6 },
   64: { arch: "biped", body: "#e8c84a", belly: "#b8884a", fat: 1.05, tail: "cone", tailLen: 1.6, snout: true, antennae: true },
-  65: { arch: "biped", body: "#e8c84a", belly: "#a87838", snout: true, antennae: true, armC: "#c8a838" },
+  65: { arch: "biped", body: "#e8c84a", belly: "#a87838", snout: true, antennae: true, armC: "#c8a838", spoons: true },
   66: { arch: "biped", body: "#9fb8c8", belly: "#b8ccd8", tail: "cone", tailR: 0.2 },
   67: { arch: "biped", body: "#8aa8bc", belly: "#d8c8b0", fat: 1.2, armLen: 1.1 },
   68: { arch: "biped", body: "#7a98ac", belly: "#d0c0a8", fat: 1.3, arms4: true, armLen: 1.1 },
@@ -1799,7 +2001,7 @@ const S: Record<number, any> = {
   102: { arch: "eggs", body: "#f8d8d0", eye: "#1c1c26" },
   103: { arch: "plant", body: "#f0d8a0", trunk: true, trunkC: "#cfa86a", heads: 3, leaves: 6, leafC: "#3f9e54", legC: "#cfa86a" },
   104: { arch: "biped", body: "#c9a06a", belly: "#e8d0a8", skull: true, eye: "#1c1c26" },
-  105: { arch: "biped", body: "#b8905a", belly: "#e0c898", fat: 1.1, skull: true },
+  105: { arch: "biped", body: "#b8905a", belly: "#e0c898", fat: 1.1, skull: true, bone: true },
   106: { arch: "biped", body: "#c9a06a", belly: "#d8b888", legLen: 2.2, legR: 0.13, armLen: 1.3 },
   107: { arch: "biped", body: "#b88ad0", belly: "#c8a0d8", gloves: "#d84848" },
   108: { arch: "biped", body: "#f0a0b8", belly: "#f8d8c0", fat: 1.2, tongue: true, tail: "thick" },
@@ -1824,7 +2026,7 @@ const S: Record<number, any> = {
   127: { arch: "biped", body: "#b8a890", belly: "#c8b8a0", fat: 1.2, pinsirHorns: true },
   128: { arch: "quad", body: "#b8844a", belly: "#d8a868", fat: 1.25, horn: true, hornC: "#e8e0d0", hornLen: 0.7, mane: true, maneC: "#8a5a2a", tail: "multi", tailN: 3, tailC: "#a87444" },
   129: { arch: "fish", body: "#e8744a", belly: "#f8e8d8", finC: "#f0e8e0", whiskers: true, fat: 1.15 },
-  130: { arch: "serpent", body: "#5a8ad0", belly: "#f0e0c0", segs: 8, fat: 1.7, lift: 0.85, hood: false, horn: false, snout: true, snoutC: "#cfe0f0", barbels: true, backFins: true, finC: "#cfe0f0", eye: "#d84848" },
+  130: { arch: "serpent", body: "#5a8ad0", belly: "#f0e0c0", segs: 8, fat: 1.7, lift: 0.85, hood: false, horn: false, snout: true, snoutC: "#cfe0f0", barbels: true, backFins: true, finC: "#cfe0f0", eye: "#d84848", fangs: true, fangLen: 1.4 },
   131: { arch: "quad", body: "#5a8ad0", belly: "#f0e4c8", fat: 1.4, neck: 1.2, legLen: 0.45, shell: "#7a6a8a", shellRim: "#9a8aa8", snout: true, horn: true, hornLen: 0.35, ears: true, earLen: 0.45 },
   132: { arch: "blob", body: "#d08ad0", squat: 0.82, eyeStyle: "bead", armsOff: true, legsOff: true },
   133: { arch: "quad", body: "#c9844a", belly: "#e8c898", mane: true, maneC: "#f0e0c8", tail: "fluff", tailC: "#c9844a", tailTip: "#f0e0c8", ears: true, earLen: 1.1 },
@@ -1842,8 +2044,8 @@ const S: Record<number, any> = {
   145: { arch: "bird", body: "#f0d030", belly: "#f8ec90", wingC: "#e8c020", fat: 1.15, crest: true, crestN: 3, crestC: "#e8c020", beakLen: 1.0 },
   146: { arch: "bird", body: "#e8a030", belly: "#f0c060", wingFlame: true, fat: 1.15, crest: true, crestC: "#ff7b29", neck: 0.5 },
   147: { arch: "serpent", body: "#7ab8e8", belly: "#f0f0f8", segs: 5, fat: 0.85, earFins: true, finC: "#f8f8fc" },
-  148: { arch: "serpent", body: "#5a9ad8", belly: "#e8f0f8", segs: 6, fat: 1.0, lift: 0.8, horn: true, earFins: true, finC: "#f8f8fc" },
-  149: { arch: "biped", body: "#f0a85a", belly: "#f8e0b0", fat: 1.25, wings: "membrane", wingC: "#7ab8d8", wingSpan: 1.2, antennae: true, tail: "thick", horn: false },
+  148: { arch: "serpent", body: "#5a9ad8", belly: "#e8f0f8", segs: 6, fat: 1.0, lift: 0.8, horn: true, earFins: true, finC: "#f8f8fc", orbs: true, orbC: "#e2ecf6" },
+  149: { arch: "biped", body: "#f3ad5c", belly: "#f8e6bc", fat: 1.28, wings: "round", wingC: "#8fc8dc", wingSpan: 1.0, antennae: true, tail: "thick", tailC: "#f3ad5c", horn: false },
   150: { arch: "biped", body: "#d8d0e0", belly: "#b8a8d0", fat: 0.92, legLen: 1.4, tail: "thick", tailC: "#8a6ab8", ears: true, earLen: 0.7, earTilt: 0.2 },
   151: { arch: "biped", body: "#f8c8d8", belly: "#fce4ee", headR: 1.05, legLen: 0.9, tail: "thin", tailC: "#f0b0c8", tailTip: "#f0b0c8", ears: true, earLen: 0.8, eye: "#5878c8" },
 };

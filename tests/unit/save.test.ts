@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  AUTOSAVE_INTERVAL_SECONDS,
   fmtPlaytime,
   slotStorageKey,
   slotMeta,
@@ -9,6 +10,12 @@ import {
 } from "../../src/game";
 
 beforeEach(() => localStorage.clear());
+
+describe("autosave interval", () => {
+  it("runs the timed autosave every two minutes", () => {
+    expect(AUTOSAVE_INTERVAL_SECONDS).toBe(120);
+  });
+});
 
 describe("fmtPlaytime", () => {
   it("formats minutes-only durations", () => {

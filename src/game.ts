@@ -15,6 +15,7 @@ import type { AudioMan } from "./audio";
 const SAVE_KEY = "kanto_adventure_save_v1";
 const SLOT_KEY = "kanto_adventure_slot";
 const SAVE_VERSION = 5;   // v5: mini-Kanto grew into full-scale Kanto
+export const AUTOSAVE_INTERVAL_SECONDS = 120;
 
 // ------------------------------------------------------- save slots (v9)
 // Three save files, RBY-style "CONTINUE / NEW GAME" on a title screen.
@@ -119,7 +120,7 @@ export function keyLabel(code: string) {
   return code.replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
-const DEFAULT_ITEMS = { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, nugget: 0 };
+const DEFAULT_ITEMS = { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, rarecandy: 0, nugget: 0 };
 const DEFAULT_CHEATS = { god: false, ohko: false, catchall: false, infpp: false, speed: false };
 const DEFAULT_SETTINGS = { vol: 70, sens: 100, ai: "adaptive", style: "fp", followers: true, expShare: true };
 
@@ -274,6 +275,7 @@ export const ITEMS = {
   repel:       { name: "Repel",        price: 350,  use: "repel", desc: "Wild Pokémon won't charge at you for 3 minutes." },
   escaperope:  { name: "Escape Rope",  price: 250,  use: "rope", desc: "Whisks you back to the last Pokémon Center." },
   lure:        { name: "Lure",         price: 400,  use: "lure", desc: "Wild Pokémon appear far more often for 3 minutes." },
+  rarecandy:   { name: "Rare Candy",   price: 0,    levelUp: 1, noshop: true, desc: "Raises one Pokémon by one level." },
   nugget:      { name: "Nugget",       price: 0,    use: "nugget", noshop: true, desc: "A lump of pure gold. Use it to sell for ₽5,000." },
 } as Record<string, any>;
 const BALL_ORDER = ["pokeball", "greatball", "ultraball"];
@@ -3625,7 +3627,7 @@ export class Game {
     this.target = null;
     this.spawnT = 1;
     this.targetT = 0;
-    this.saveT = 10;
+    this.saveT = AUTOSAVE_INTERVAL_SECONDS;
     this.throwLock = 0;
     this.evoQueue = [];
     this.learnQueue = [];
@@ -4646,33 +4648,35 @@ export class Game {
     while (this.learnQueue.length) {
       const { mon, move } = this.learnQueue.shift();
       if (mon.moves.includes(move)) continue;
-      if (mon.moves.length < 4) {
+      const slot = await this.ui.learnPrompt(mon, move);
+      if (slot != null && slot >= 0 && mon.moves.length < 4 && slot >= mon.moves.length) {
         mon.moves.push(move);
         mon.pp = mon.pp || [];
         mon.pp.push(MOVES[move].pp);          // keep PP array aligned with the new slot
         this.audio.play("learn");
         this.ui.toast(`${monName(mon)} learned ${MOVES[move].name}!`, "good");
+      } else if (slot != null && slot >= 0) {
+        const old = MOVES[mon.moves[slot]].name;
+        mon.moves[slot] = move;
+        if (mon.pp) mon.pp[slot] = MOVES[move].pp;   // fresh PP for the freshly learned move
+        this.audio.play("learn");
+        this.ui.toast(`Forgot ${old} and learned ${MOVES[move].name}!`, "good");
       } else {
-        const slot = await this.ui.learnPrompt(mon, move);
-        if (slot != null && slot >= 0) {
-          const old = MOVES[mon.moves[slot]].name;
-          mon.moves[slot] = move;
-          if (mon.pp) mon.pp[slot] = MOVES[move].pp;   // fresh PP for the freshly learned move
-          this.audio.play("learn");
-          this.ui.toast(`Forgot ${old} and learned ${MOVES[move].name}!`, "good");
-        } else this.ui.toast(`${monName(mon)} did not learn ${MOVES[move].name}.`, "");
+        this.ui.toast(`${monName(mon)} did not learn ${MOVES[move].name}.`, "");
       }
     }
     // evolutions (cinematic)
     while (this.evoQueue.length) {
       const { mon, to } = this.evoQueue.shift();
       if (!this.state.party.includes(mon) && !this.state.boxes.includes(mon)) continue;
+      const fromName = monName(mon);
+      const yes = await this.ui.confirm(`${fromName} can evolve into ${DEX[to].name}! Start evolution?`, "Evolve", "Not now");
+      if (!yes) { this.ui.toast(`${fromName} did not evolve.`, ""); continue; }
       const pos = this.playerPos.clone().add(this.lookDir().multiplyScalar(4.5));
       pos.y = this.world.height(pos.x, pos.z);
       const ent = new MonEntity(this, mon, pos);
       this.audio.play("evolve");
       this.ui.toast(`What? ${monName(mon)} is evolving!`, "good");
-      const fromName = monName(mon);
       ent.lookToward(this.playerPos);
       await this.fx.evolve(ent, () => {
         evolveMon(mon, to);
@@ -4886,6 +4890,11 @@ export class Game {
       s.items[key]--;
       this.audio.play("heal");
       this.ui.toast(`${monName(mon)} was revived!`, "good");
+    } else if (item.levelUp) {
+      if (inBattle) { this.ui.toast("Not during a battle!", "bad"); return false; }
+      if (!mon || mon.lv >= 100) { this.ui.toast("It won't have any effect.", "bad"); return false; }
+      s.items[key]--;
+      this.handleXp(mon, xpForLevel(mon.sp, mon.lv + 1) - mon.xp);
     } else if (item.ball) {
       this.ui.toast("Throw Balls by clicking at a wild Pokémon!", "");
       return false;
@@ -5072,7 +5081,7 @@ export class Game {
       }
     }
     this.saveT -= dt;
-    if (this.saveT <= 0) { this.saveT = 10; this.save(); }
+    if (this.saveT <= 0) { this.saveT = AUTOSAVE_INTERVAL_SECONDS; this.save(); }
   }
   // ambient actors keep moving even on the title screen / during the intro —
   // called from the main loop outside the usual "game started" gate

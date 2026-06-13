@@ -234,6 +234,7 @@ export class UI {
     }
     if (code === "F9") {
       if (!this.game.state.started) return true;
+      if (!this.modalOpen) return true;
       const top = this.modalStack[this.modalStack.length - 1];
       if (top === "m-cheats") this.closeTop();
       else this.openCheats();
@@ -641,11 +642,13 @@ export class UI {
     const r = this._dlgResolve; this._dlgResolve = null;
     if (r) r(result);
   }
-  confirm(text) {
+  confirm(text, yesLabel = "Confirm", noLabel = "Cancel") {
     return new Promise((res) => {
       $("confirmtext").textContent = text;
       this._confirmResolve = res;
       this.show("m-confirm");
+      $("confirmyes").textContent = yesLabel;
+      $("confirmno").textContent = noLabel;
       $("confirmyes").onclick = () => { this._confirmResolve = null; this.hide("m-confirm"); res(true); };
       $("confirmno").onclick = () => { this._confirmResolve = null; this.hide("m-confirm"); res(false); };
     });
@@ -756,7 +759,9 @@ export class UI {
         } else if (direct) {
           if (g.useItem(key, -1, !!g.battle)) this.openBag();
         } else {
-          const idx = await this.pickParty(item.revive ? "Revive which Pokémon?" : "Heal which Pokémon?", (m) => (item.revive ? m.hp <= 0 : m.hp > 0 && m.hp < m.maxhp));
+          const title = item.levelUp ? `Use ${item.name} on which Pokémon?` : item.revive ? "Revive which Pokémon?" : "Heal which Pokémon?";
+          const canUse = (m) => item.levelUp ? m.lv < 100 : item.revive ? m.hp <= 0 : m.hp > 0 && m.hp < m.maxhp;
+          const idx = await this.pickParty(title, canUse);
           if (idx != null) { g.useItem(key, idx, !!g.battle); this.openBag(); }
         }
       });
@@ -774,6 +779,7 @@ export class UI {
     const list = $("shoplist");
     list.innerHTML = "";
     for (const [key, item] of Object.entries(ITEMS)) {
+      if (item.noshop) continue;
       const locked = item.unlock && g.state.tl < item.unlock;
       const icon = item.ball ? `<span class="ballicon ${key.replace("ball", "")}"></span>` : `<span class="itemicon ${key}"></span>`;
       const row = el("div", "itemrow", `
@@ -955,17 +961,25 @@ export class UI {
       const mv = MOVES[moveId];
       $("learninfo").innerHTML = `<b>${esc(monName(mon))}</b> wants to learn ${chip(mv.type)} <b>${esc(mv.name)}</b>
         <small>(${mv.power ? "PWR " + mv.power : "status"} · ${mv.acc ? "ACC " + mv.acc : "sure hit"})</small><br>
-        <small>But it already knows 4 moves. Replace one?</small>`;
+        <small>${mon.moves.length >= 4 ? "But it already knows 4 moves. Replace one?" : "It has an open move slot."}</small>`;
       const list = $("learnlist");
       list.innerHTML = "";
-      mon.moves.forEach((id, i) => {
-        const om = MOVES[id];
-        const row = el("div", "itemrow", `${chip(om.type)}<span class="inf"><b>${esc(om.name)}</b></span><small>${om.power ? "PWR " + om.power : "status"}</small>`);
-        const b = el("button", "", "Replace");
-        b.addEventListener("click", () => { this._learnResolve = null; this.hide("m-learn"); res(i); });
+      if (mon.moves.length < 4) {
+        const row = el("div", "itemrow", `${chip(mv.type)}<span class="inf"><b>${esc(mv.name)}</b></span><small>${mv.power ? "PWR " + mv.power : "status"}</small>`);
+        const b = el("button", "primary", "Learn");
+        b.addEventListener("click", () => { this._learnResolve = null; this.hide("m-learn"); res(mon.moves.length); });
         row.appendChild(b);
         list.appendChild(row);
-      });
+      } else {
+        mon.moves.forEach((id, i) => {
+          const om = MOVES[id];
+          const row = el("div", "itemrow", `${chip(om.type)}<span class="inf"><b>${esc(om.name)}</b></span><small>${om.power ? "PWR " + om.power : "status"}</small>`);
+          const b = el("button", "", "Replace");
+          b.addEventListener("click", () => { this._learnResolve = null; this.hide("m-learn"); res(i); });
+          row.appendChild(b);
+          list.appendChild(row);
+        });
+      }
       $("learnskip").onclick = () => { this._learnResolve = null; this.hide("m-learn"); res(-1); };
       this._learnResolve = res;
       this.show("m-learn");
