@@ -134,7 +134,7 @@ export class UI {
     $("setVol").value = s.vol;
     $("setSens").value = s.sens;
     $("setAI").value = s.ai || "adaptive";
-    $("setStyle").value = s.style || "fp";
+    $("setStyle").value = s.style || "arena";
     $("setFollowers").value = s.followers === false ? "off" : "on";
     $("setExpShare").value = s.expShare === false ? "off" : "on";
     this.audio.setVolume(s.vol / 100);

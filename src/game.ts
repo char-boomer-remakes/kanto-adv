@@ -122,7 +122,7 @@ export function keyLabel(code: string) {
 
 const DEFAULT_ITEMS = { pokeball: 5, greatball: 0, ultraball: 0, potion: 0, superpotion: 0, revive: 0, oranberry: 2, repel: 0, escaperope: 1, lure: 0, rarecandy: 0, nugget: 0 };
 const DEFAULT_CHEATS = { god: false, ohko: false, catchall: false, infpp: false, speed: false };
-const DEFAULT_SETTINGS = { vol: 70, sens: 100, ai: "adaptive", style: "fp", followers: true, expShare: true };
+const DEFAULT_SETTINGS = { vol: 70, sens: 100, ai: "adaptive", style: "arena", followers: true, expShare: true };
 
 function isObj(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function finiteNum(v, fallback) { return typeof v === "number" && Number.isFinite(v) ? v : fallback; }

@@ -228,14 +228,14 @@ classic town-map silhouette.
     A thrown Ball is your whole turn **even if it misses** — the wild gets
     its free swing and play comes straight back to you — and the bag and
     switch menus are sealed while a round is still resolving.
-  - **Arena** is the balanced middle: real-time with per-move cooldowns,
+  - **Arena** (default) is the balanced middle: real-time with per-move cooldowns,
     watched from over your Pokémon's shoulder. Move with **WASD** — but
     **plant your feet to fire true; shooting on the run sprays wide** (the HUD
     calls your aim STEADY / WAVERING / WILD). Enemies telegraph attacks (red
     bar): hit **Space** to dodge — success depends on Speed, and a clean dodge
     opens a counter window. Duck behind trees and rocks for cover, shove foes
     into hazards, and **PP only burns on a clean hit**. Honest numbers.
-  - **First-Person** (default) is the high-skill mode: every battle starts
+  - **First-Person** is the high-skill mode: every battle starts
     INSIDE your Pokémon, and the damage swings both ways with how well you play.
 - **First-Person style — BE your Pokémon.** The camera dives into your
   partner's eyes and the battle becomes a first-person action fight with a
