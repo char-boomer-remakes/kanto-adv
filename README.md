@@ -63,7 +63,8 @@ Setting up on a Windows PC from scratch? See
 - `npm run typecheck` — TypeScript check
 - `npm test` — fast **unit** suite ([Vitest](https://vitest.dev), runs in Node in
   ~1s): pure game logic — stats/XP/evolution, type math, habitat/skill/speed
-  traits, spawn-table integrity, save helpers. `npm run test:watch` to watch.
+  traits, spawn-table integrity, save helpers, item/badge defaults, and shared
+  utilities. `npm run test:watch` to watch.
 - `npm run test:e2e` — **browser** suite ([Playwright](https://playwright.dev)):
   parallel per-system specs (world, battle, save, smoke) that boot the live Vite
   app and jump straight to the state under test via the in-game `DEBUG` API. It
@@ -250,6 +251,16 @@ classic town-map silhouette.
     into hazards, and **PP only burns on a clean hit**. Honest numbers.
   - **First-Person** is the high-skill mode: every battle starts
     INSIDE your Pokémon, and the damage swings both ways with how well you play.
+- **Real-time fights are a rotation, not a spam.** In Arena and First-Person
+  your four moves play distinct roles: cheap **basics** on a short cooldown that
+  feed an **energy meter**, mid-weight **skills**, and a heavy **burst** that
+  only fires once the meter fills. Dodging and sprinting drain a **stamina**
+  bar that refills between exchanges (darty species recover faster), so "can I
+  afford another dodge?" is a real question. Elements combine on the target:
+  soak a foe and zap it for **Conduct**, freeze it then hit fire for **Melt**,
+  douse a burning one for **Steam**, torch a seeded one for **Bloom**.
+  Low-accuracy moves fired on the run **graze** for reduced damage instead of
+  whiffing outright.
 - **First-Person style — BE your Pokémon.** The camera dives into your
   partner's eyes and the battle becomes a first-person action fight with a
   **higher ceiling and a lower floor**:

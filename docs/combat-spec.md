@@ -1,6 +1,12 @@
 # Real-time combat identity for Arena + First-Person
 
-Status: draft / proposed. Nothing here is built yet.
+Status: implemented and shipped. Every phase in the build order below now lives
+in `src/game.ts` — the `BALANCE` table, move tiers and authored cooldowns,
+the energy meter and bursts, stamina, elemental reactions, the accuracy graze
+band, the real-time status retune, and the sequencing enemy brain — wired into
+the HUD in `src/ui.ts`, with `DEBUG.energy` / `DEBUG.stamina` setters and
+coverage in `tests/e2e/battle.spec.ts`. The sections below stand as the design
+record; file and line references are approximate and drift as the code moves.
 
 This spec adds a real-time combat layer to the two custom battle styles so a
 fight becomes "manage a short rotation, spend resources well, and trigger
